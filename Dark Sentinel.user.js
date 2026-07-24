@@ -514,7 +514,8 @@
 					teveErro = true;
 					var targetId = null;
 					if (settings.data) {
-						var match = settings.data.match(/id=(\d+)/);
+						var dados = typeof settings.data === 'string' ? settings.data : JSON.stringify(settings.data);
+						var match = dados.match(/id[=:](\d+)/);
 						if (match) targetId = match[1];
 					}
 					if (targetId) {
