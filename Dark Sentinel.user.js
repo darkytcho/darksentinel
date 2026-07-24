@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.0.2
+// @version      1.1
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://raw.githubusercontent.com/darkytcho/darksentinel/main/Dark%20Sentinel.obs.user.js
