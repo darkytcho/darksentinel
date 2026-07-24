@@ -518,11 +518,12 @@
 						var match = dados.match(/id[=:](\d+)/);
 						if (match) targetId = match[1];
 					}
+					console.log('[DS] Rejeitado. settings.data:', settings.data, 'typeof:', typeof settings.data, 'targetId:', targetId, 'erro:', resp.json.error);
 					if (targetId) {
 						adicionarListaNegra(targetId);
 					}
 				}
-			} catch (e) {}
+			} catch (e) { console.log('[DS] Erro ajaxComplete:', e); }
 			if (pendingResolve) {
 				setTimeout(function () { pendingResolve({ success: !teveErro }); }, 0);
 			}
