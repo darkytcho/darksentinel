@@ -724,11 +724,19 @@
 	// Inicialização
 	// ========================
 
+	function aguardarJogo(callback) {
+		if (typeof uw.ITowns !== 'undefined' && typeof uw.gpAjax !== 'undefined' && typeof uw.MM !== 'undefined' && typeof uw.GameEvents !== 'undefined') {
+			callback();
+		} else {
+			setTimeout(function () { aguardarJogo(callback); }, 500);
+		}
+	}
+
 	window.addEventListener('load', function () {
-		setTimeout(function () {
+		aguardarJogo(function () {
 			configurarIndicador();
 			setTimeout(atualizarMapa, 1500);
-		}, 500);
+		});
 	});
 
 })();
