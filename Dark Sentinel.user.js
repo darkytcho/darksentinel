@@ -515,15 +515,24 @@
 					var targetId = null;
 					if (settings.data) {
 						var dados = typeof settings.data === 'string' ? settings.data : JSON.stringify(settings.data);
-						var match = dados.match(/id[=:](\d+)/);
-						if (match) targetId = match[1];
+						var jsonMatch = dados.match(/json=([^&]+)/);
+						if (jsonMatch) {
+							try {
+								var decoded = decodeURIComponent(jsonMatch[1]);
+								var parsed = JSON.parse(decoded);
+								targetId = parsed.id;
+							} catch (e2) {}
+						}
+						if (!targetId) {
+							var match = dados.match(/id[=:](\d+)/);
+							if (match) targetId = match[1];
+						}
 					}
-					console.log('[DS] Rejeitado. settings.data:', settings.data, 'typeof:', typeof settings.data, 'targetId:', targetId, 'erro:', resp.json.error);
 					if (targetId) {
 						adicionarListaNegra(targetId);
 					}
 				}
-			} catch (e) { console.log('[DS] Erro ajaxComplete:', e); }
+			} catch (e) {}
 			if (pendingResolve) {
 				setTimeout(function () { pendingResolve({ success: !teveErro }); }, 0);
 			}
