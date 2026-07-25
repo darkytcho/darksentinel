@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.1.1
+// @version      1.5
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
-// @updateURL    https://raw.githubusercontent.com/darkytcho/darksentinel/main/Dark%20Sentinel.obs.user.js
-// @downloadURL  https://raw.githubusercontent.com/darkytcho/darksentinel/main/Dark%20Sentinel.obs.user.js
+// @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/Dark%20Sentinel.obs.user.js
+// @downloadURL  https://github.com/darkytcho/darksentinel/releases/latest/download/Dark%20Sentinel.obs.user.js
 // @include      http://*.grepolis.com/game/*
 // @include      https://*.grepolis.com/game/*
 // ==/UserScript==
@@ -44,24 +44,24 @@
 	// Funções compartilhadas
 	// ========================
 
-	/* Envia sentinela para a cidade alvo. source_id opcional = cidade de origem */
+	/* Envia sentinela para a cidade alvo. source_id opcional = cidade de origem. */
 	function enviarSentinela(unit, target_id, source_id) {
-		let data = { id: target_id, type: 'support' };
+		let data = { id: parseInt(target_id), type: 'support' };
 		data[unit] = 1;
-		if (source_id) data.town_id = source_id;
-		dsDebug('send_units', unit, '->', target_id, 'de', source_id, data);
+		if (source_id) data.town_id = parseInt(source_id);
+		console.log('[DS-Debug] enviarSentinela:', JSON.stringify(data));
 		uw.gpAjax.ajaxPost('town_info', 'send_units', data);
 	}
 
-	/* Retorna a unidade disponível na cidade atual */
-	function selecionarUnidade(comCavaleiro, comBigas) {
+	/* Retorna a unidade disponível na cidade atual (respeita config) */
+	function selecionarUnidade(cfg) {
+		if (!cfg) cfg = carregarConfig();
 		let units = uw.ITowns.getCurrentTown().getLandUnits();
-		if (units.sword > 0) return 'sword';
-		if (units.archer > 0) return 'archer';
-		if (units.slinger > 0) return 'slinger';
-		if (units.hoplite > 0) return 'hoplite';
-		if (comCavaleiro && units.knight > 0) return 'knight';
-		if (comBigas && units.chariot > 0) return 'chariot';
+		const ordem = cfg.ordemTerra || PADRAO_ORDEM_TERRA;
+		for (let i = 0; i < ordem.length; i++) {
+			const k = ordem[i];
+			if (cfg.terra[k] && units[k] > 0) return k;
+		}
 		return null;
 	}
 
@@ -111,6 +111,8 @@
 	}
 
 	function estaNaListaNegra(cityId) {
+		const cfg = carregarConfig();
+		if (!cfg.listaNegraAtiva) return false;
 		const lista = obterListaNegra();
 		const expiracao = lista[cityId];
 		if (!expiracao) return false;
@@ -133,13 +135,19 @@
 	// Botão de Sentinela (menu de contexto)
 	// ========================
 
-	function tratarCliqueMenuContexto(target) {
-		let unit = selecionarUnidade(false, false);
-		if (!unit) {
-			uw.HumanMessage.error('Nenhuma tropa disponível');
-			return;
+	function tratarCliqueMenuContexto(data) {
+		let cfg = carregarConfig();
+		const cidadesJogador = Object.keys(uw.ITowns.towns);
+		for (let i = 0; i < cidadesJogador.length; i++) {
+			const cid = cidadesJogador[i];
+			const cidade = uw.ITowns.towns[cid];
+			if (cidade.getIslandCoordinateX() != data.x || cidade.getIslandCoordinateY() != data.y) continue;
+			const unitTerra = obterUnidadeParaCidade(cid, cfg);
+			if (unitTerra) { enviarSentinela(unitTerra, data.id, cid); return; }
+			const unitNaval = obterUnidadeNaval(cid, cfg);
+			if (unitNaval) { enviarSentinela(unitNaval, data.id, cid); return; }
 		}
-		enviarSentinela(unit, target.id);
+		uw.HumanMessage.error('Nenhuma tropa disponível');
 	}
 
 	uw.$.Observer(uw.GameEvents.map.town.click).subscribe((e, data) => {
@@ -334,12 +342,347 @@
 	}
 
 	// ========================
+	// Configurações (preferências salvas)
+	// ========================
+
+	const CHAVE_CONFIG = 'sentinela_config_v2';
+
+	const UNIDADES_TERRA = [
+		{ chave: 'sword', nome: 'Espadachim' },
+		{ chave: 'archer', nome: 'Arqueiro' },
+		{ chave: 'slinger', nome: 'Fundibulário' },
+		{ chave: 'hoplite', nome: 'Hoplita' },
+		{ chave: 'knight', nome: 'Cavaleiro' },
+		{ chave: 'chariot', nome: 'Biga' }
+	];
+
+	const UNIDADES_NAVAL = [
+		{ chave: 'bireme', nome: 'Birreme' },
+		{ chave: 'fire_ship', nome: 'Navio-farol' },
+		{ chave: 'trireme', nome: 'Trirreme' },
+		{ chave: 'big_transport_ship', nome: 'Barco de transporte' },
+		{ chave: 'transport_ship', nome: 'Navio de transporte rápido' }
+	];
+
+	const PADRAO_TERRA = { sword: true, archer: true, slinger: true, hoplite: true, knight: false, chariot: false };
+	const PADRAO_NAVAL = { bireme: false, fire_ship: false, trireme: false, big_transport_ship: false, transport_ship: false };
+	const PADRAO_ORDEM_TERRA = ['sword', 'archer', 'slinger', 'hoplite', 'knight', 'chariot'];
+	const PADRAO_ORDEM_NAVAL = ['bireme', 'fire_ship', 'trireme', 'big_transport_ship', 'transport_ship'];
+
+	function carregarConfig() {
+		try {
+			const cfg = JSON.parse(localStorage.getItem(CHAVE_CONFIG) || '{}');
+			const terra = {};
+			const naval = {};
+			for (let i = 0; i < UNIDADES_TERRA.length; i++) {
+				terra[UNIDADES_TERRA[i].chave] = cfg.terra && typeof cfg.terra[UNIDADES_TERRA[i].chave] !== 'undefined' ? !!cfg.terra[UNIDADES_TERRA[i].chave] : PADRAO_TERRA[UNIDADES_TERRA[i].chave];
+			}
+			for (let i = 0; i < UNIDADES_NAVAL.length; i++) {
+				naval[UNIDADES_NAVAL[i].chave] = cfg.naval && typeof cfg.naval[UNIDADES_NAVAL[i].chave] !== 'undefined' ? !!cfg.naval[UNIDADES_NAVAL[i].chave] : PADRAO_NAVAL[UNIDADES_NAVAL[i].chave];
+			}
+			let ordemTerra = cfg.ordemTerra;
+			let ordemNaval = cfg.ordemNaval;
+			if (!Array.isArray(ordemTerra)) ordemTerra = PADRAO_ORDEM_TERRA.slice();
+			if (!Array.isArray(ordemNaval)) ordemNaval = PADRAO_ORDEM_NAVAL.slice();
+			return { terra: terra, naval: naval, ordemTerra: ordemTerra, ordemNaval: ordemNaval, listaNegraAtiva: typeof cfg.listaNegraAtiva !== 'undefined' ? !!cfg.listaNegraAtiva : true, overlayAtivo: typeof cfg.overlayAtivo !== 'undefined' ? !!cfg.overlayAtivo : true };
+		} catch (e) {
+			const terra = {};
+			const naval = {};
+			for (let i = 0; i < UNIDADES_TERRA.length; i++) terra[UNIDADES_TERRA[i].chave] = PADRAO_TERRA[UNIDADES_TERRA[i].chave];
+			for (let i = 0; i < UNIDADES_NAVAL.length; i++) naval[UNIDADES_NAVAL[i].chave] = PADRAO_NAVAL[UNIDADES_NAVAL[i].chave];
+			return { terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true };
+		}
+	}
+
+	function salvarConfig(cfg) {
+		localStorage.setItem(CHAVE_CONFIG, JSON.stringify(cfg));
+	}
+
+	function abrirConfig() {
+		const cfg = carregarConfig();
+		if (document.getElementById('sentinela_config_modal')) return;
+
+		const modal = document.createElement('div');
+		modal.id = 'sentinela_config_modal';
+		modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:99999;display:flex;align-items:center;justify-content:center;';
+
+		const overlay = document.createElement('div');
+		overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);';
+		overlay.onclick = function () { modal.remove(); };
+
+		const box = document.createElement('div');
+		box.style.cssText = 'position:relative;background:#2a1a0e;border:2px solid #8b6914;border-radius:8px;padding:20px;min-width:280px;max-height:80vh;overflow-y:auto;color:#fc6;font-family:Arial,sans-serif;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.6);';
+
+		const titulo = document.createElement('div');
+		titulo.style.cssText = 'font-size:15px;font-weight:bold;margin-bottom:6px;text-align:center;border-bottom:1px solid #8b6914;padding-bottom:8px;';
+		titulo.textContent = 'Dark Sentinel - Config';
+		box.appendChild(titulo);
+
+		const descGeral = document.createElement('div');
+		descGeral.style.cssText = 'font-size:12px;color:#aaa;margin-bottom:14px;line-height:1.5;text-align:left;';
+		descGeral.innerHTML = '<b style="color:#fc6">Terrestre</b> — Envia 1 tropa terrestre de uma ilha para cidades aliadas na mesma ilha.<br><b style="color:#fc6">Naval</b> — Envia 1 tropa naval de uma ilha para cidades aliadas na mesma ilha.<br><b style="color:#fc6">Prioridade:</b> As sentinelas terrestres são enviadas primeiro. A primeira unidade disponível na lista (de cima para baixo) é enviada.';
+		box.appendChild(descGeral);
+
+		function criarCheck(label, chave, grupo, idx) {
+			const valor = cfg[grupo][chave];
+			const row = document.createElement('div');
+			row.style.cssText = 'display:flex;align-items:center;margin:3px 0;padding:4px 6px;border-radius:4px;cursor:grab;user-select:none;';
+			row.draggable = true;
+			row.dataset.chave = chave;
+			row.onmouseover = function () { row.style.background = 'rgba(255,255,255,0.08)'; };
+			row.onmouseout = function () { row.style.background = 'transparent'; };
+			row.ondragstart = function (e) {
+				row.style.opacity = '0.4';
+				e.dataTransfer.setData('text/plain', chave);
+				e.dataTransfer.effectAllowed = 'move';
+			};
+			row.ondragend = function () { row.style.opacity = '1'; };
+			row.ondragover = function (e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; row.style.background = 'rgba(212,160,23,0.3)'; };
+			row.ondragleave = function () { row.style.background = 'transparent'; };
+			row.ondrop = function (e) {
+				e.preventDefault();
+				row.style.background = 'transparent';
+				const dragged = e.dataTransfer.getData('text/plain');
+				const ordemKey = grupo === 'terra' ? 'ordemTerra' : 'ordemNaval';
+				const ordem = cfg[ordemKey];
+				const fromIdx = ordem.indexOf(dragged);
+				const toIdx = ordem.indexOf(chave);
+				if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
+				ordem.splice(fromIdx, 1);
+				ordem.splice(toIdx, 0, dragged);
+				salvarConfig(cfg);
+				modal.remove();
+				abrirConfig();
+			};
+
+			const num = document.createElement('div');
+			num.style.cssText = 'width:18px;font-size:11px;color:#8b6914;font-weight:bold;text-align:center;flex-shrink:0;';
+			num.textContent = idx + 1 + '.';
+
+			const cb = document.createElement('div');
+			cb.style.cssText = 'width:16px;height:16px;border:2px solid #8b6914;border-radius:3px;margin-right:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;' + (valor ? 'background:#4CAF50;border-color:#4CAF50;' : 'background:#1a1a1a;');
+
+			const icon = document.createElement('div');
+			icon.style.cssText = 'color:white;font-size:11px;font-weight:bold;line-height:1;' + (valor ? '' : 'display:none;');
+			icon.textContent = '\u2713';
+			cb.appendChild(icon);
+
+			const txt = document.createElement('span');
+			txt.style.cssText = 'font-size:12px;color:#fc6;';
+
+			const iconDrag = document.createElement('span');
+			iconDrag.style.cssText = 'font-size:10px;color:#666;margin-right:6px;';
+			iconDrag.textContent = '\u2630';
+
+			txt.textContent = label;
+
+			row.appendChild(num);
+			row.appendChild(iconDrag);
+			row.appendChild(cb);
+			row.appendChild(txt);
+			cb.onclick = function (e) {
+				e.stopPropagation();
+				cfg[grupo][chave] = !cfg[grupo][chave];
+				cb.style.background = cfg[grupo][chave] ? '#4CAF50' : '#1a1a1a';
+				cb.style.borderColor = cfg[grupo][chave] ? '#4CAF50' : '#8b6914';
+				icon.style.display = cfg[grupo][chave] ? '' : 'none';
+				salvarConfig(cfg);
+			};
+			return row;
+		}
+
+		function criarSecao(titulo, unidades, grupo) {
+			const sec = document.createElement('div');
+			sec.style.cssText = 'margin-bottom:12px;';
+			const cab = document.createElement('div');
+			cab.style.cssText = 'font-size:13px;font-weight:bold;color:#d4a017;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid rgba(139,105,20,0.4);';
+			cab.textContent = titulo;
+			sec.appendChild(cab);
+			const ordemKey = grupo === 'terra' ? 'ordemTerra' : 'ordemNaval';
+			const ordem = cfg[ordemKey] || PADRAO_ORDEM_TERRA;
+			for (let i = 0; i < ordem.length; i++) {
+				const unidade = unidades.find(function (u) { return u.chave === ordem[i]; });
+				if (unidade) sec.appendChild(criarCheck(unidade.nome, unidade.chave, grupo, i));
+			}
+			return sec;
+		}
+
+		const colunas = document.createElement('div');
+		colunas.style.cssText = 'display:flex;gap:16px;margin-bottom:12px;';
+
+		const colTerra = document.createElement('div');
+		colTerra.style.cssText = 'flex:1;min-width:0;';
+		colTerra.appendChild(criarSecao('Terra', UNIDADES_TERRA, 'terra'));
+
+		const colNaval = document.createElement('div');
+		colNaval.style.cssText = 'flex:1;min-width:0;';
+		colNaval.appendChild(criarSecao('Naval', UNIDADES_NAVAL, 'naval'));
+
+		colunas.appendChild(colTerra);
+		colunas.appendChild(colNaval);
+		box.appendChild(colunas);
+
+		const secSeg = document.createElement('div');
+		secSeg.style.cssText = 'margin-bottom:12px;';
+		const cabSeg = document.createElement('div');
+		cabSeg.style.cssText = 'font-size:13px;font-weight:bold;color:#d4a017;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid rgba(139,105,20,0.4);';
+		cabSeg.textContent = 'Segurança';
+		secSeg.appendChild(cabSeg);
+
+		function criarOpcaoSeguranca(titulo, descricao, chaveCfg, valorAtual, extras, recomendado) {
+			const row = document.createElement('div');
+			row.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;margin:8px 0;padding:6px;border-radius:4px;cursor:pointer;';
+			row.onmouseover = function () { row.style.background = 'rgba(255,255,255,0.08)'; };
+			row.onmouseout = function () { row.style.background = 'transparent'; };
+
+			const info = document.createElement('div');
+			info.style.cssText = 'flex:1;margin-right:10px;text-align:left;';
+			const tit = document.createElement('div');
+			tit.style.cssText = 'font-size:12px;font-weight:bold;color:#fc6;margin-bottom:2px;display:flex;align-items:center;gap:6px;';
+			const titTexto = document.createElement('span');
+			titTexto.textContent = titulo;
+			tit.appendChild(titTexto);
+			if (recomendado) {
+				const badge = document.createElement('span');
+				badge.style.cssText = 'font-size:9px;font-weight:normal;color:#2ecc71;border:1px solid #2ecc71;border-radius:3px;padding:0 4px;line-height:1.4;';
+				badge.textContent = 'Recomendado';
+				tit.appendChild(badge);
+			}
+			const desc = document.createElement('div');
+			desc.style.cssText = 'font-size:10px;color:#aaa;line-height:1.3;';
+			desc.textContent = descricao;
+			info.appendChild(tit);
+			info.appendChild(desc);
+			if (extras) info.appendChild(extras);
+
+			const cb = document.createElement('div');
+			cb.style.cssText = 'width:16px;height:16px;border:2px solid #8b6914;border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px;' + (valorAtual ? 'background:#4CAF50;border-color:#4CAF50;' : 'background:#1a1a1a;');
+			const icon = document.createElement('div');
+			icon.style.cssText = 'color:white;font-size:11px;font-weight:bold;line-height:1;' + (valorAtual ? '' : 'display:none;');
+			icon.textContent = '\u2713';
+			cb.appendChild(icon);
+
+			row.appendChild(info);
+			row.appendChild(cb);
+			row.onclick = function () {
+				cfg[chaveCfg] = !cfg[chaveCfg];
+				cb.style.background = cfg[chaveCfg] ? '#4CAF50' : '#1a1a1a';
+				cb.style.borderColor = cfg[chaveCfg] ? '#4CAF50' : '#8b6914';
+				icon.style.display = cfg[chaveCfg] ? '' : 'none';
+				salvarConfig(cfg);
+			};
+			return row;
+		}
+
+		const btnLimpar = document.createElement('div');
+		const listaNegra = obterListaNegra();
+		const totalLN = Object.keys(listaNegra).length;
+		btnLimpar.style.cssText = 'cursor:pointer;padding:3px 8px;background:#c0392b;border-radius:3px;font-size:10px;font-weight:bold;color:#fff;margin-top:4px;display:inline-block;';
+		btnLimpar.textContent = 'Limpar Lista' + (totalLN > 0 ? ' (' + totalLN + ')' : '');
+		btnLimpar.onmouseover = function () { btnLimpar.style.background = '#e74c3c'; };
+		btnLimpar.onmouseout = function () { btnLimpar.style.background = '#c0392b'; };
+		btnLimpar.onclick = function (e) {
+			e.stopPropagation();
+			salvarListaNegra({});
+			btnLimpar.textContent = 'Limpar Lista (0)';
+			btnLimpar.style.background = '#555';
+			btnLimpar.style.cursor = 'default';
+			btnLimpar.onmouseover = null;
+			btnLimpar.onmouseout = null;
+			uw.HumanMessage.success('Lista negra limpa');
+		};
+
+		secSeg.appendChild(criarOpcaoSeguranca(
+			'Lista Negra',
+			'Bloqueia cidades que recusaram apoio por 24h, ignorando-as nos envios.',
+			'listaNegraAtiva', cfg.listaNegraAtiva, btnLimpar, true
+		));
+
+		secSeg.appendChild(criarOpcaoSeguranca(
+			'Overlay de Envio',
+			'Exibe um painel sobre o jogo durante o envio de sentinelas, com botão para cancelar.',
+			'overlayAtivo', cfg.overlayAtivo, null, true
+		));
+
+		box.appendChild(secSeg);
+
+		const btnFechar = document.createElement('div');
+		btnFechar.style.cssText = 'margin-top:10px;cursor:pointer;padding:6px 16px;background:#8b6914;border-radius:4px;font-size:12px;font-weight:bold;color:#fff;';
+		btnFechar.textContent = 'Fechar';
+		btnFechar.onclick = function () { modal.remove(); };
+		btnFechar.onmouseover = function () { btnFechar.style.background = '#a67c1a'; };
+		btnFechar.onmouseout = function () { btnFechar.style.background = '#8b6914'; };
+
+		const btnRestaurar = document.createElement('div');
+		btnRestaurar.style.cssText = 'margin-top:10px;cursor:pointer;padding:6px 16px;background:#c0392b;border-radius:4px;font-size:12px;font-weight:bold;color:#fff;';
+		btnRestaurar.textContent = 'Restaurar Padr\u00f5es';
+		btnRestaurar.onmouseover = function () { btnRestaurar.style.background = '#e74c3c'; };
+		btnRestaurar.onmouseout = function () { btnRestaurar.style.background = '#c0392b'; };
+		btnRestaurar.onclick = function (e) {
+			e.stopPropagation();
+			const confirmModal = document.createElement('div');
+			confirmModal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:100000;display:flex;align-items:center;justify-content:center;';
+			const confirmOverlay = document.createElement('div');
+			confirmOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);';
+			const confirmBox = document.createElement('div');
+			confirmBox.style.cssText = 'position:relative;background:#2a1a0e;border:2px solid #c0392b;border-radius:8px;padding:20px;max-width:340px;color:#fc6;font-family:Arial,sans-serif;font-size:13px;text-align:center;';
+			const confirmTitulo = document.createElement('div');
+			confirmTitulo.style.cssText = 'font-size:14px;font-weight:bold;margin-bottom:10px;color:#e74c3c;';
+			confirmTitulo.textContent = 'Restaurar Padr\u00f5es?';
+			const confirmTxt = document.createElement('div');
+			confirmTxt.style.cssText = 'font-size:12px;color:#aaa;line-height:1.5;margin-bottom:16px;';
+			confirmTxt.innerHTML = 'Isso vai:<br>\u2022 Restaurar todas as unidades terrestres e navais para o padr\u00e3o<br>\u2022 Ativar Lista Negra e Overlay de Envio<br><br>Suas configura\u00e7\u00f5es atuais ser\u00e3o perdidas.';
+			const confirmBtns = document.createElement('div');
+			confirmBtns.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+			const btnSim = document.createElement('div');
+			btnSim.style.cssText = 'cursor:pointer;padding:6px 16px;background:#c0392b;border-radius:4px;font-size:12px;font-weight:bold;color:#fff;';
+			btnSim.textContent = 'Sim, restaurar';
+			btnSim.onmouseover = function () { btnSim.style.background = '#e74c3c'; };
+			btnSim.onmouseout = function () { btnSim.style.background = '#c0392b'; };
+			btnSim.onclick = function () {
+				const terra = {};
+				const naval = {};
+				for (let i = 0; i < UNIDADES_TERRA.length; i++) terra[UNIDADES_TERRA[i].chave] = PADRAO_TERRA[UNIDADES_TERRA[i].chave];
+				for (let i = 0; i < UNIDADES_NAVAL.length; i++) naval[UNIDADES_NAVAL[i].chave] = PADRAO_NAVAL[UNIDADES_NAVAL[i].chave];
+				salvarConfig({ terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true });
+				confirmModal.remove();
+				modal.remove();
+				uw.HumanMessage.success('Configura\u00e7\u00f5es restauradas');
+				abrirConfig();
+			};
+			const btnNao = document.createElement('div');
+			btnNao.style.cssText = 'cursor:pointer;padding:6px 16px;background:#555;border-radius:4px;font-size:12px;font-weight:bold;color:#fff;';
+			btnNao.textContent = 'Cancelar';
+			btnNao.onmouseover = function () { btnNao.style.background = '#777'; };
+			btnNao.onmouseout = function () { btnNao.style.background = '#555'; };
+			btnNao.onclick = function () { confirmModal.remove(); };
+			confirmBtns.appendChild(btnSim);
+			confirmBtns.appendChild(btnNao);
+			confirmBox.appendChild(confirmTitulo);
+			confirmBox.appendChild(confirmTxt);
+			confirmBox.appendChild(confirmBtns);
+			confirmModal.appendChild(confirmOverlay);
+			confirmModal.appendChild(confirmBox);
+			document.body.appendChild(confirmModal);
+			confirmOverlay.onclick = function () { confirmModal.remove(); };
+		};
+
+		const botoes = document.createElement('div');
+		botoes.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+		botoes.appendChild(btnRestaurar);
+		botoes.appendChild(btnFechar);
+		box.appendChild(botoes);
+
+		modal.appendChild(overlay);
+		modal.appendChild(box);
+		document.body.appendChild(modal);
+	}
+
+	// ========================
 	// Sentinela Global (helpers)
 	// ========================
 
 	let cancelarEnvio = false;
-	let permitirCavaleiro = false;
-	let permitirBigas = false;
 	let pendingResolve = null;
 
 	function delay(ms) {
@@ -367,17 +710,32 @@
 		return false;
 	}
 
-	/* Retorna a unidade disponível para uma cidade específica */
-	function obterUnidadeParaCidade(cidadeId, comCavaleiro, comBigas) {
+	/* Retorna a unidade disponível para uma cidade específica (respeita config) */
+	function obterUnidadeParaCidade(cidadeId, cfg) {
+		if (!cfg) cfg = carregarConfig();
 		const cidade = uw.ITowns.towns[cidadeId];
 		if (!cidade) return null;
 		const unidades = cidade.getLandUnits();
-		if (unidades.sword > 0) return 'sword';
-		if (unidades.archer > 0) return 'archer';
-		if (unidades.slinger > 0) return 'slinger';
-		if (unidades.hoplite > 0) return 'hoplite';
-		if (comCavaleiro && unidades.knight > 0) return 'knight';
-		if (comBigas && unidades.chariot > 0) return 'chariot';
+		const ordem = cfg.ordemTerra || PADRAO_ORDEM_TERRA;
+		for (let i = 0; i < ordem.length; i++) {
+			const k = ordem[i];
+			if (cfg.terra[k] && unidades[k] > 0) return k;
+		}
+		return null;
+	}
+
+	/* Retorna a unidade naval disponível para uma cidade específica (respeita config) */
+	function obterUnidadeNaval(cidadeId, cfg) {
+		if (!cfg) cfg = carregarConfig();
+		const cidade = uw.ITowns.towns[cidadeId];
+		if (!cidade) return null;
+		const unidades = cidade.units();
+		if (!unidades) return null;
+		const ordem = cfg.ordemNaval || PADRAO_ORDEM_NAVAL;
+		for (let i = 0; i < ordem.length; i++) {
+			const k = ordem[i];
+			if (cfg.naval[k] && uw.GameData.units[k] && uw.GameData.units[k].is_naval && unidades[k] > 0) return k;
+		}
 		return null;
 	}
 
@@ -444,23 +802,16 @@
 				let sentries_x1 = wnd_window.getElementsByClassName('sentries_x1')[0];
 				if (sentries_x1 == null) {
 					$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
-						'<div class="button_new sentries_x1"><div class="left"></div><div class="right"></div><div class="caption js-caption"> Enviar Sentinelas <div class="effect js-effect"></div></div></div>'
+						'<div class="button_new sentries_x1" title="Envia 1 sentinela para cada cidade aliada na ilha"><div class="left"></div><div class="right"></div><div class="caption js-caption"> Enviar Sentinelas <div class="effect js-effect"></div></div></div>'
 					);
 					$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
-						'<div class="button_new sentries_global" style="margin-left:5px;"><div class="left"></div><div class="right"></div><div class="caption js-caption"> Sentinela Global <div class="effect js-effect"></div></div></div>'
+						'<div class="button_new sentries_global" style="margin-left:5px;" title="Envia sentinelas para todas as ilhas de uma vez"><div class="left"></div><div class="right"></div><div class="caption js-caption"> Sentinela Global <div class="effect js-effect"></div></div></div>'
 					);
 					$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
-						'<div class="checkbox_new sentinela_check_cavaleiro large" style="margin-left:8px;cursor:pointer;"><div class="cbx_icon"></div><div class="cbx_caption">Cavaleiro</div></div>'
-					);
-					$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
-						'<div class="checkbox_new sentinela_check_bigas large" style="margin-left:8px;cursor:pointer;"><div class="cbx_icon"></div><div class="cbx_caption">Bigas</div></div>'
+						'<div class="button_new sentinela_config_btn" style="margin-left:5px;" title="Alterar configura\u00e7\u00f5es do envio de sentinelas"><div class="left"></div><div class="right"></div><div class="caption js-caption"> \u2699 <div class="effect js-effect"></div></div></div>'
 					);
 					$(`#gpwnd_${wndid}`).on('click', '.sentries_x1', function () {
-						let unit = selecionarUnidade(false, false);
-						if (!unit) {
-							uw.HumanMessage.error('Nenhuma tropa disponível');
-							return;
-						}
+						const cfg = carregarConfig();
 						let lista = obterCidades(coordX, coordY);
 						let cidades_jogador = jogadorTemCidades(lista);
 						for (let i = 0; i < cidades_jogador.length; i++) {
@@ -469,35 +820,35 @@
 							lista = removerSuporte(lista, cidades_jogador[i]);
 						}
 						lista = removerAliancas(lista);
+						const cidadesJogadorIds = cidades_jogador.map(String);
 						let enviosFeitos = 0;
 						for (let i = 0; i < lista.length; i++) {
 							if (temSentinela(lista[i])) continue;
 							if (estaNaListaNegra(lista[i])) continue;
 							enviosFeitos++;
+							const idx = i;
 							setTimeout(() => {
-								let unit = selecionarUnidade(false, false);
-								if (!unit) return;
-								if (temSentinela(lista[i])) return;
-								if (estaNaListaNegra(lista[i])) return;
-								enviarSentinela(unit, lista[i]);
+								if (temSentinela(lista[idx])) return;
+								if (estaNaListaNegra(lista[idx])) return;
+								for (let c = 0; c < cidadesJogadorIds.length; c++) {
+									const cid = cidadesJogadorIds[c];
+									const unitTerra = obterUnidadeParaCidade(cid, cfg);
+									if (unitTerra) { enviarSentinela(unitTerra, lista[idx], cid); return; }
+									const unitNaval = obterUnidadeNaval(cid, cfg);
+									if (unitNaval) { enviarSentinela(unitNaval, lista[idx], cid); return; }
+								}
 							}, i * 500);
 						}
 						if (enviosFeitos === 0) {
 							uw.HumanMessage.error('Nenhum alvo encontrado nesta ilha');
 						}
 					});
-					$(`#gpwnd_${wndid}`).on('click', '.sentinela_check_cavaleiro', function () {
-						$(this).toggleClass('checked');
-					});
-					$(`#gpwnd_${wndid}`).on('click', '.sentinela_check_bigas', function () {
-						$(this).toggleClass('checked');
+					$(`#gpwnd_${wndid}`).on('click', '.sentinela_config_btn', function () {
+						abrirConfig();
 					});
 					$(`#gpwnd_${wndid}`).on('click', '.sentries_global', function () {
-						const checkCav = $(`#gpwnd_${wndid}`).find('.sentinela_check_cavaleiro').hasClass('checked');
-						const checkBig = $(`#gpwnd_${wndid}`).find('.sentinela_check_bigas').hasClass('checked');
-						permitirCavaleiro = checkCav;
-						permitirBigas = checkBig;
-						enviarSentinelaGlobal();
+						const cfg = carregarConfig();
+						enviarSentinelaGlobal(cfg);
 					});
 				}
 			}
@@ -507,9 +858,20 @@
 	/* Intercepta resposta do send_units */
 	$(document).ajaxComplete(function (event, xhr, settings) {
 		if (settings.url && settings.url.indexOf('send_units') !== -1) {
+			try {
+				var dadosReq = typeof settings.data === 'string' ? settings.data : JSON.stringify(settings.data);
+				console.groupCollapsed('[DS-AJAX] send_units REQUEST');
+				console.log(settings.data);
+				console.log('Raw:', dadosReq);
+				console.groupEnd();
+			} catch (e) {}
 			var teveErro = false;
 			try {
 				var resp = JSON.parse(xhr.responseText);
+				console.groupCollapsed('[DS-AJAX] send_units RESPONSE (status=' + xhr.status + ')');
+				console.log('Full responseText:', xhr.responseText);
+				console.log('Parsed:', resp);
+				console.groupEnd();
 				if (resp.json && resp.json.error) {
 					teveErro = true;
 					var targetId = null;
@@ -540,29 +902,69 @@
 	});
 
 	// ========================
-	// Sentinela Global (UI e execução)
+	// Janela de progresso (única, muda posição conforme overlay)
 	// ========================
 
-	function criarBarraProgresso() {
-		const existing = document.getElementById('sentinela_progresso');
-		if (existing) existing.remove();
+	function criarJanelaProgresso(usarOverlay) {
+		removerJanelaProgresso();
 		cancelarEnvio = false;
-		const barra = document.createElement('div');
-		barra.id = 'sentinela_progresso';
-		barra.style.cssText = 'position:fixed;bottom:20px;right:60px;background:rgba(0,0,0,0.85);color:white;padding:10px 14px;border-radius:6px;font-family:Arial,sans-serif;font-size:12px;z-index:10000;min-width:220px;box-shadow:0 4px 12px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);';
-		barra.innerHTML = '<div id="sentinela_progresso_titulo" style="margin-bottom:6px;font-weight:bold;font-size:13px;">Sentinela Global</div>' +
-			'<div id="sentinela_progresso_texto" style="margin-bottom:6px;">Preparando...</div>' +
-			'<div style="background:#333;border-radius:3px;overflow:hidden;height:16px;">' +
-			'<div id="sentinela_progresso_barra" style="background:linear-gradient(90deg,#4CAF50,#45a049);height:100%;width:0%;transition:width 0.3s ease;"></div></div>' +
-			'<div id="sentinela_progresso_contador" style="margin-top:4px;font-size:11px;color:#aaa;text-align:right;">0/0</div>' +
-			'<div id="sentinela_progresso_cancelar" style="margin-top:6px;text-align:center;cursor:pointer;padding:4px 10px;background:#c0392b;border-radius:3px;font-size:11px;font-weight:bold;">Cancelar</div>';
-		document.body.appendChild(barra);
-		document.getElementById('sentinela_progresso_cancelar').onclick = function () {
+
+		const ov = document.createElement('div');
+		ov.id = 'sentinela_overlay';
+
+		if (usarOverlay) {
+			ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:99998;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);';
+		} else {
+			ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:99998;pointer-events:none;';
+		}
+
+		const painel = document.createElement('div');
+		if (usarOverlay) {
+			painel.style.cssText = 'pointer-events:auto;background:#2a1a0e;border:2px solid #8b6914;border-radius:10px;padding:24px 32px;text-align:center;color:#fc6;font-family:Arial,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.7);min-width:300px;';
+		} else {
+			painel.style.cssText = 'pointer-events:auto;position:fixed;bottom:20px;right:60px;background:rgba(0,0,0,0.85);color:white;padding:10px 14px;border-radius:6px;font-family:Arial,sans-serif;font-size:12px;min-width:220px;box-shadow:0 4px 12px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);';
+		}
+
+		const titulo = document.createElement('div');
+		titulo.id = 'sentinela_progresso_titulo';
+		titulo.style.cssText = usarOverlay ? 'font-size:16px;font-weight:bold;margin-bottom:8px;' : 'margin-bottom:6px;font-weight:bold;font-size:13px;';
+		titulo.textContent = 'Sentinela Global';
+		painel.appendChild(titulo);
+
+		const sub = document.createElement('div');
+		sub.id = 'sentinela_progresso_texto';
+		sub.style.cssText = usarOverlay ? 'font-size:12px;color:#aaa;margin-bottom:12px;' : 'margin-bottom:6px;';
+		sub.textContent = 'Preparando...';
+		painel.appendChild(sub);
+
+		const barraContainer = document.createElement('div');
+		barraContainer.style.cssText = 'background:#333;border-radius:3px;overflow:hidden;height:16px;margin-bottom:8px;';
+		const barraFill = document.createElement('div');
+		barraFill.id = 'sentinela_progresso_barra';
+		barraFill.style.cssText = 'background:linear-gradient(90deg,#4CAF50,#45a049);height:100%;width:0%;transition:width 0.3s ease;';
+		barraContainer.appendChild(barraFill);
+		painel.appendChild(barraContainer);
+
+		const contador = document.createElement('div');
+		contador.id = 'sentinela_progresso_contador';
+		contador.style.cssText = 'font-size:11px;color:#aaa;text-align:right;margin-bottom:8px;';
+		contador.textContent = '0/0';
+		painel.appendChild(contador);
+
+		const btn = document.createElement('div');
+		btn.style.cssText = 'cursor:pointer;padding:' + (usarOverlay ? '8px 24px' : '4px 10px') + ';background:#c0392b;border-radius:3px;font-size:' + (usarOverlay ? '13px' : '11px') + ';font-weight:bold;color:#fff;display:inline-block;text-align:center;';
+		btn.textContent = 'Cancelar';
+		btn.onmouseover = function () { btn.style.background = '#e74c3c'; };
+		btn.onmouseout = function () { btn.style.background = '#c0392b'; };
+		btn.onclick = function () {
 			cancelarEnvio = true;
-			mostrarBarraProgresso(false);
+			removerJanelaProgresso();
 			uw.HumanMessage.error('Envio cancelado');
-			console.log('[Dark Sentinel] Envio cancelado pelo usuário');
 		};
+		painel.appendChild(btn);
+
+		ov.appendChild(painel);
+		document.body.appendChild(ov);
 	}
 
 	function atualizarTituloProgresso(titulo) {
@@ -570,9 +972,21 @@
 		if (el) el.textContent = titulo;
 	}
 
-	function mostrarBarraProgresso(mostrar) {
-		const barra = document.getElementById('sentinela_progresso');
-		if (barra) barra.style.display = mostrar ? 'block' : 'none';
+	function atualizarTextoProgresso(texto) {
+		const el = document.getElementById('sentinela_progresso_texto');
+		if (el) el.textContent = texto;
+	}
+
+	function atualizarBarraProgresso(current, total) {
+		const barra = document.getElementById('sentinela_progresso_barra');
+		const contador = document.getElementById('sentinela_progresso_contador');
+		if (barra) barra.style.width = Math.round((current / total) * 100) + '%';
+		if (contador) contador.textContent = current + '/' + total;
+	}
+
+	function removerJanelaProgresso() {
+		const ov = document.getElementById('sentinela_overlay');
+		if (ov) ov.remove();
 	}
 
 	function atualizarBarraProgresso(enviados, total) {
@@ -584,7 +998,8 @@
 		if (contador) contador.textContent = enviados + '/' + total;
 	}
 
-	function enviarSentinelaGlobal() {
+	function enviarSentinelaGlobal(cfg) {
+		if (!cfg) cfg = carregarConfig();
 		const cidadesJogador = [];
 		for (let id in uw.ITowns.towns) {
 			cidadesJogador.push(uw.ITowns.towns[id]);
@@ -610,19 +1025,15 @@
 		let indiceIlha = 0;
 		dsDebug('Total de ilhas para processar: ' + chavesIlha.length);
 
-		criarBarraProgresso();
-		mostrarBarraProgresso(true);
-		atualizarTituloProgresso('Sentinela Global');
+		const usarOverlay = cfg.overlayAtivo;
+		criarJanelaProgresso(usarOverlay);
+		atualizarTextoProgresso('Preparando ilhas... 0/' + chavesIlha.length);
 		atualizarBarraProgresso(0, chavesIlha.length);
-		const textoProg = document.getElementById('sentinela_progresso_texto');
-		if (textoProg) textoProg.textContent = 'Preparando ilhas...';
 
 		function processarProximaIhla() {
 			try {
 				if (indiceIlha >= chavesIlha.length) {
 					dsDebug('Todas as ilhas processadas');
-					if (textoProg) textoProg.textContent = 'Todas as ilhas processadas';
-					atualizarBarraProgresso(chavesIlha.length, chavesIlha.length);
 					iniciarEnvios();
 					return;
 				}
@@ -647,14 +1058,21 @@
 				const enviosIlha = [];
 				for (let j = 0; j < cidadesIlha.length; j++) {
 					const cidadeOrigem = cidadesIlha[j];
-					if (!obterUnidadeParaCidade(cidadeOrigem.id, permitirCavaleiro, permitirBigas)) continue;
+					const temTerra = obterUnidadeParaCidade(cidadeOrigem.id, cfg);
+					const temNaval = obterUnidadeNaval(cidadeOrigem.id, cfg);
+					if (!temTerra && !temNaval) continue;
 					for (let k = 0; k < cidadesAlvo.length; k++) {
 						const cidadeAlvoId = cidadesAlvo[k];
 						if (estaNaListaNegra(cidadeAlvoId)) continue;
 						if (temSentinela(cidadeAlvoId)) continue;
 						if (temSuporteACaminho(cidadeAlvoId)) continue;
 						if (temSentinelaDe(cidadeOrigem.id, cidadeAlvoId)) continue;
-						enviosIlha.push({ origem: cidadeOrigem.id, destino: cidadeAlvoId });
+						if (temTerra) {
+							enviosIlha.push({ origem: cidadeOrigem.id, destino: cidadeAlvoId, tipo: 'terra' });
+						}
+						if (temNaval) {
+							enviosIlha.push({ origem: cidadeOrigem.id, destino: cidadeAlvoId, tipo: 'naval' });
+						}
 					}
 				}
 
@@ -663,19 +1081,19 @@
 					ordemIlhas.push(chaveIlha);
 				}
 
+				atualizarTextoProgresso('Preparando ilhas... ' + indiceIlha + '/' + chavesIlha.length);
 				atualizarBarraProgresso(indiceIlha, chavesIlha.length);
-				if (textoProg) textoProg.textContent = 'Preparando ilhas... ' + indiceIlha + '/' + chavesIlha.length;
 			} catch (e) {
 				dsDebug('Erro ao processar ilha: ' + (e.message || e));
 			}
 
-			setTimeout(processarProximaIhla, 50);
+			setTimeout(processarProximaIhla, 25);
 		}
 
 		async function iniciarEnvios() {
 			if (ordemIlhas.length === 0) {
 				uw.HumanMessage.error('Nenhuma sentinela para enviar');
-				mostrarBarraProgresso(false);
+				removerJanelaProgresso();
 				return;
 			}
 
@@ -685,8 +1103,8 @@
 			}
 
 			atualizarTituloProgresso('Enviando Sentinelas');
+			atualizarTextoProgresso('Enviando... 0/' + totalEnvios);
 			atualizarBarraProgresso(0, totalEnvios);
-			if (textoProg) textoProg.textContent = 'Enviando...';
 			dsDebug('Ilhas com envios: ' + ordemIlhas.join(', '));
 
 			let enviadas = 0;
@@ -703,7 +1121,12 @@
 				for (let j = 0; j < enviosIlha.length; j++) {
 					if (cancelarEnvio) { dsDebug('Envio cancelado'); break; }
 					const envio = enviosIlha[j];
-					const unidade = obterUnidadeParaCidade(envio.origem, permitirCavaleiro, permitirBigas);
+					let unidade = null;
+					if (envio.tipo === 'naval') {
+						unidade = obterUnidadeNaval(envio.origem, cfg);
+					} else {
+						unidade = obterUnidadeParaCidade(envio.origem, cfg);
+					}
 					if (unidade) {
 						var resultado = await enviarSentinelaPromise(unidade, envio.destino, envio.origem);
 						if (resultado && resultado.success) {
@@ -714,6 +1137,7 @@
 					}
 					processadas++;
 					atualizarBarraProgresso(processadas, totalEnvios);
+					atualizarTextoProgresso('Enviando... ' + processadas + '/' + totalEnvios);
 					if (j < enviosIlha.length - 1) {
 						await delay(1500 + Math.floor(Math.random() * 500) - 250);
 					}
@@ -721,7 +1145,7 @@
 			}
 
 			setTimeout(function () {
-				mostrarBarraProgresso(false);
+				removerJanelaProgresso();
 				if (semUnidades > 0) {
 					uw.HumanMessage.error(enviadas + ' enviadas, ' + semUnidades + ' sem unidades');
 				} else {
