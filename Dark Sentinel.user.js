@@ -1169,11 +1169,17 @@
 		}
 	}
 
-	window.addEventListener('load', function () {
+	function initSentinela() {
 		aguardarJogo(function () {
 			configurarIndicador();
 			setTimeout(atualizarMapa, 1500);
 		});
-	});
+	}
+
+	if (document.readyState === 'complete') {
+		initSentinela();
+	} else {
+		window.addEventListener('load', initSentinela);
+	}
 
 })();
