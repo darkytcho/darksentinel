@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.6.1
+// @version      1.6.2
 // @author       Dark Rebel
 // @description  Sentinelas automatizadas para Grepolis
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -12,7 +12,7 @@
 
 (function () {
 	'use strict';
-	var EXPECTED_HASH = 'a60f800e96bf3fbead3067011c46fa95b7b2d5902bf54aecaea8d7e2598f0d63';
+	var EXPECTED_HASH = 'd7b08d18c19edf5b73cb91e18b78d4553938e6786a367f660e3ca5610f3a65ba';
 	var u = 'https://raw.githubusercontent.com/darkytcho/darksentinel/main/dist/sentinel.js?' + Date.now();
 
 	if (location.protocol !== 'https:') {
