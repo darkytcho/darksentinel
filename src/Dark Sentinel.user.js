@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.6.3
+// @version      1.7.0
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -20,28 +20,67 @@
 	// Dados do servidor
 	// ========================
 	let lista_cidades = [];
-	$.ajax({ method: 'get', url: '/data/towns.txt' }).done(function (m) {
-		try {
-			$.each(m.split(/\r\n|\n/), function (C, J) {
-				lista_cidades.push(J.split(/,/));
-			});
-		} catch (C) {
-		}
-	});
-
 	let lista_jogadores = [];
-	$.ajax({ method: 'get', url: '/data/players.txt' }).done(function (m) {
-		try {
-			$.each(m.split(/\r\n|\n/), function (C, J) {
-				lista_jogadores.push(J.split(/,/));
-			});
-		} catch (C) {
-		}
-	});
+	let lista_aliancas = [];
+	let mapaNomesAliancas = {};
+	let cacheCidadesPorIlha = {};
+
+	function carregarDadosServidor() {
+		lista_cidades = [];
+		lista_jogadores = [];
+		lista_aliancas = [];
+		mapaNomesAliancas = {};
+		cacheCidadesPorIlha = {};
+		$.ajax({ method: 'get', url: '/data/towns.txt' }).done(function (m) {
+			try {
+				$.each(m.split(/\r\n|\n/), function (C, J) {
+					if (J.trim()) {
+						const cols = J.split(/,/);
+						cols[2] = decodificarHTML(cols[2]);
+						lista_cidades.push(cols);
+					}
+				});
+			} catch (C) {}
+		});
+		$.ajax({ method: 'get', url: '/data/players.txt' }).done(function (m) {
+			try {
+				$.each(m.split(/\r\n|\n/), function (C, J) {
+					if (J.trim()) {
+						const cols = J.split(/,/);
+						cols[1] = decodificarHTML(cols[1]);
+						lista_jogadores.push(cols);
+					}
+				});
+			} catch (C) {}
+		});
+		$.ajax({ method: 'get', url: '/data/alliances.txt' }).done(function (m) {
+			try {
+				$.each(m.split(/\r\n|\n/), function (C, J) {
+					if (J.trim()) {
+						const cols = J.split(/,/);
+						lista_aliancas.push(cols);
+						mapaNomesAliancas[String(cols[0])] = decodificarHTML(cols[1]);
+					}
+				});
+			} catch (C) {}
+		});
+	}
+
+	carregarDadosServidor();
+	setInterval(carregarDadosServidor, 60 * 60 * 1000);
 
 	// ========================
 	// Funções compartilhadas
 	// ========================
+
+	function decodificarHTML(texto) {
+		if (!texto) return texto;
+		texto = texto.replace(/\+/g, ' ');
+		try { texto = decodeURIComponent(texto); } catch (e) {}
+		const el = document.createElement('div');
+		el.innerHTML = texto;
+		return el.textContent;
+	}
 
 	/* Envia sentinela para a cidade alvo. source_id opcional = cidade de origem. */
 	function enviarSentinela(unit, target_id, source_id) {
@@ -266,7 +305,6 @@
 	// ========================
 
 	/* Retorna as cidades na ilha (com cache) */
-	let cacheCidadesPorIlha = {};
 	function obterCidades(islandX, islandY) {
 		const chave = islandX + '_' + islandY;
 		if (cacheCidadesPorIlha[chave]) return cacheCidadesPorIlha[chave];
@@ -280,19 +318,28 @@
 		return lista;
 	}
 
-	/* Remove cidades de alianças inimigas */
-	function removerAliancas(lista) {
+	/* Filtra cidades por tipo (aliado, sem aliança, fantasma, inimigo) */
+	function filtrarPorTipo(lista) {
+		const cfg = carregarConfig();
 		let aliancaModelos = uw.MM.getCollections().AlliancePact[0];
-		if (!aliancaModelos || !aliancaModelos.models.length) return lista;
-		let aliancaJogador = aliancaModelos.models[0].attributes.alliance_1_id;
+		let aliancaJogador = null;
 		let aliancasInimigas = new Set();
-		for (let i = 0; i < aliancaModelos.models.length; i++) {
-			let m = aliancaModelos.models[i].attributes;
-			if (m.relation == 'war' && m.alliance_1_id == aliancaJogador) {
-				aliancasInimigas.add(String(m.alliance_2_id));
+		let aliancasAliadas = new Set();
+
+		if (aliancaModelos && aliancaModelos.models.length) {
+			aliancaJogador = aliancaModelos.models[0].attributes.alliance_1_id;
+			for (let i = 0; i < aliancaModelos.models.length; i++) {
+				let m = aliancaModelos.models[i].attributes;
+				if (m.alliance_1_id == aliancaJogador) {
+					if (m.relation == 'war') aliancasInimigas.add(String(m.alliance_2_id));
+					else if (m.relation == 'ally') aliancasAliadas.add(String(m.alliance_2_id));
+				} else if (m.alliance_2_id == aliancaJogador) {
+					if (m.relation == 'war') aliancasInimigas.add(String(m.alliance_1_id));
+					else if (m.relation == 'ally') aliancasAliadas.add(String(m.alliance_1_id));
+				}
 			}
 		}
-		if (aliancasInimigas.size == 0) return lista;
+
 		let mapaJogador = {};
 		for (let i = 0; i < lista_jogadores.length; i++) {
 			mapaJogador[lista_jogadores[i][0]] = lista_jogadores[i][2];
@@ -301,12 +348,29 @@
 		for (let i = 0; i < lista_cidades.length; i++) {
 			mapaCidadeJogador[lista_cidades[i][0]] = lista_cidades[i][1];
 		}
+
+		let minhasCidades = {};
+		for (let id in uw.ITowns.towns) {
+			minhasCidades[String(id)] = true;
+		}
+
 		return lista.filter((id) => {
+			if (minhasCidades[String(id)]) return true;
 			let jogadorID = mapaCidadeJogador[id];
-			if (!jogadorID) return true;
+			if (!jogadorID) return cfg.enviarFantasmas !== false;
+			if (typeof mapaJogador[jogadorID] === 'undefined') return cfg.enviarFantasmas !== false;
 			let aliancaID = mapaJogador[jogadorID];
-			if (!aliancaID) return true;
-			return !aliancasInimigas.has(String(aliancaID));
+			if (aliancaID == aliancaJogador) return true;
+
+			if (cfg.modoEnvio === 'alianca') {
+				if (!aliancaID) return cfg.enviarSemAlianca !== false;
+				return cfg.aliancasSelecionadas.indexOf(String(aliancaID)) !== -1;
+			}
+
+			if (!aliancaID) return cfg.enviarSemAlianca !== false;
+			if (aliancasInimigas.has(String(aliancaID))) return cfg.enviarInimigos === true;
+			if (aliancasAliadas.has(String(aliancaID))) return cfg.enviarAliados !== false;
+			return cfg.enviarSemAlianca !== false;
 		});
 	}
 
@@ -335,6 +399,16 @@
 		}
 		if (alvos.size == 0) return lista;
 		return lista.filter((id) => !alvos.has(String(id)));
+	}
+
+	/* Verifica se a ilha está na lista de ignoradas */
+	function ilhaIgnorada(x, y) {
+		const cfg = carregarConfig();
+		const ilhas = cfg.ilhasIgnoradas || [];
+		for (let i = 0; i < ilhas.length; i++) {
+			if (String(ilhas[i].x) === String(x) && String(ilhas[i].y) === String(y)) return true;
+		}
+		return false;
 	}
 
 	// ========================
@@ -380,13 +454,13 @@
 			let ordemNaval = cfg.ordemNaval;
 			if (!Array.isArray(ordemTerra)) ordemTerra = PADRAO_ORDEM_TERRA.slice();
 			if (!Array.isArray(ordemNaval)) ordemNaval = PADRAO_ORDEM_NAVAL.slice();
-			return { terra: terra, naval: naval, ordemTerra: ordemTerra, ordemNaval: ordemNaval, listaNegraAtiva: typeof cfg.listaNegraAtiva !== 'undefined' ? !!cfg.listaNegraAtiva : true, overlayAtivo: typeof cfg.overlayAtivo !== 'undefined' ? !!cfg.overlayAtivo : true };
+			return { terra: terra, naval: naval, ordemTerra: ordemTerra, ordemNaval: ordemNaval, listaNegraAtiva: typeof cfg.listaNegraAtiva !== 'undefined' ? !!cfg.listaNegraAtiva : true, overlayAtivo: typeof cfg.overlayAtivo !== 'undefined' ? !!cfg.overlayAtivo : true, enviarAliados: typeof cfg.enviarAliados !== 'undefined' ? !!cfg.enviarAliados : true, enviarSemAlianca: typeof cfg.enviarSemAlianca !== 'undefined' ? !!cfg.enviarSemAlianca : true, enviarFantasmas: typeof cfg.enviarFantasmas !== 'undefined' ? !!cfg.enviarFantasmas : true, enviarInimigos: typeof cfg.enviarInimigos !== 'undefined' ? !!cfg.enviarInimigos : false, ilhasIgnoradas: Array.isArray(cfg.ilhasIgnoradas) ? cfg.ilhasIgnoradas : [], modoEnvio: cfg.modoEnvio === 'alianca' ? 'alianca' : 'filtro', aliancasSelecionadas: Array.isArray(cfg.aliancasSelecionadas) ? cfg.aliancasSelecionadas : [] };
 		} catch (e) {
 			const terra = {};
 			const naval = {};
 			for (let i = 0; i < UNIDADES_TERRA.length; i++) terra[UNIDADES_TERRA[i].chave] = PADRAO_TERRA[UNIDADES_TERRA[i].chave];
 			for (let i = 0; i < UNIDADES_NAVAL.length; i++) naval[UNIDADES_NAVAL[i].chave] = PADRAO_NAVAL[UNIDADES_NAVAL[i].chave];
-			return { terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true };
+			return { terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true, enviarAliados: true, enviarSemAlianca: true, enviarFantasmas: true, enviarInimigos: false, ilhasIgnoradas: [], modoEnvio: 'filtro', aliancasSelecionadas: [] };
 		}
 	}
 
@@ -411,7 +485,7 @@
 
 		const titulo = document.createElement('div');
 		titulo.style.cssText = 'font-size:15px;font-weight:bold;margin-bottom:6px;text-align:center;border-bottom:1px solid #8b6914;padding-bottom:8px;';
-		titulo.textContent = 'Configurações - Dark Sentinel (1.6.3)';
+		titulo.textContent = 'Configurações - Dark Sentinel (1.7.0)';
 		box.appendChild(titulo);
 
 		const descGeral = document.createElement('div');
@@ -514,12 +588,281 @@
 		colNaval.style.cssText = 'flex:1;min-width:0;';
 		colNaval.appendChild(criarSecao('Naval', UNIDADES_NAVAL, 'naval'));
 
+		const colAlvos = document.createElement('div');
+		colAlvos.style.cssText = 'flex:1;min-width:0;';
+
+		const secAlvos = document.createElement('div');
+		secAlvos.style.cssText = 'margin-bottom:0;';
+		const cabAlvos = document.createElement('div');
+		cabAlvos.style.cssText = 'font-size:13px;font-weight:bold;color:#d4a017;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid rgba(139,105,20,0.4);';
+		cabAlvos.textContent = 'Enviar Sentinela Para';
+		secAlvos.appendChild(cabAlvos);
+
+		const tabsContainer = document.createElement('div');
+		tabsContainer.style.cssText = 'display:flex;gap:2px;margin-bottom:8px;';
+
+		const conteudoAlvos = document.createElement('div');
+
+		function criarTab(texto, chave) {
+			const tab = document.createElement('div');
+			tab.style.cssText = 'flex:1;text-align:center;padding:4px 6px;border-radius:3px;font-size:11px;font-weight:bold;cursor:pointer;border:1px solid ' + (cfg.modoEnvio === chave ? '#d4a017' : '#555') + ';' + (cfg.modoEnvio === chave ? 'background:#3a2a10;color:#fc6;' : 'background:#1a1a1a;color:#888;');
+			tab.textContent = texto;
+			return tab;
+		}
+
+		const tabFiltro = criarTab('Filtro', 'filtro');
+		const tabAlianca = criarTab('Por Aliança', 'alianca');
+		tabsContainer.appendChild(tabFiltro);
+		tabsContainer.appendChild(tabAlianca);
+		secAlvos.appendChild(tabsContainer);
+
+		function renderizarConteudoAlvos() {
+			conteudoAlvos.innerHTML = '';
+			if (cfg.modoEnvio === 'filtro') {
+				const opcoesAlvo = [
+					{ chave: 'enviarAliados', titulo: 'Alianças aliadas' },
+					{ chave: 'enviarSemAlianca', titulo: 'Sem aliança' },
+					{ chave: 'enviarFantasmas', titulo: 'Fantasmas' },
+					{ chave: 'enviarInimigos', titulo: 'Inimigos' }
+				];
+				for (let i = 0; i < opcoesAlvo.length; i++) {
+					const op = opcoesAlvo[i];
+					const row = document.createElement('div');
+					row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:5px 0;padding:3px 6px;border-radius:4px;cursor:pointer;';
+					row.onmouseover = function () { row.style.background = 'rgba(255,255,255,0.08)'; };
+					row.onmouseout = function () { row.style.background = 'transparent'; };
+					const txt = document.createElement('span');
+					txt.style.cssText = 'font-size:11px;color:#fc6;';
+					txt.textContent = op.titulo;
+					const cb = document.createElement('div');
+					cb.style.cssText = 'width:14px;height:14px;border:2px solid #8b6914;border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0;' + (cfg[op.chave] ? 'background:#4CAF50;border-color:#4CAF50;' : 'background:#1a1a1a;');
+					const icon = document.createElement('div');
+					icon.style.cssText = 'color:white;font-size:10px;font-weight:bold;line-height:1;' + (cfg[op.chave] ? '' : 'display:none;');
+					icon.textContent = '\u2713';
+					cb.appendChild(icon);
+					row.appendChild(txt);
+					row.appendChild(cb);
+					row.onclick = function () {
+						cfg[op.chave] = !cfg[op.chave];
+						cb.style.background = cfg[op.chave] ? '#4CAF50' : '#1a1a1a';
+						cb.style.borderColor = cfg[op.chave] ? '#4CAF50' : '#8b6914';
+						icon.style.display = cfg[op.chave] ? '' : 'none';
+						salvarConfig(cfg);
+					};
+					conteudoAlvos.appendChild(row);
+				}
+			} else {
+				const opcoesExtra = [
+					{ chave: 'enviarSemAlianca', titulo: 'Sem aliança' },
+					{ chave: 'enviarFantasmas', titulo: 'Fantasmas' }
+				];
+				for (let i = 0; i < opcoesExtra.length; i++) {
+					const op = opcoesExtra[i];
+					const row = document.createElement('div');
+					row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:5px 0;padding:3px 6px;border-radius:4px;cursor:pointer;';
+					row.onmouseover = function () { row.style.background = 'rgba(255,255,255,0.08)'; };
+					row.onmouseout = function () { row.style.background = 'transparent'; };
+					const txt = document.createElement('span');
+					txt.style.cssText = 'font-size:11px;color:#fc6;';
+					txt.textContent = op.titulo;
+					const cb = document.createElement('div');
+					cb.style.cssText = 'width:14px;height:14px;border:2px solid #8b6914;border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0;' + (cfg[op.chave] ? 'background:#4CAF50;border-color:#4CAF50;' : 'background:#1a1a1a;');
+					const icon = document.createElement('div');
+					icon.style.cssText = 'color:white;font-size:10px;font-weight:bold;line-height:1;' + (cfg[op.chave] ? '' : 'display:none;');
+					icon.textContent = '\u2713';
+					cb.appendChild(icon);
+					row.appendChild(txt);
+					row.appendChild(cb);
+					row.onclick = (function (chave, cbRef, iconRef) {
+						return function () {
+							cfg[chave] = !cfg[chave];
+							cbRef.style.background = cfg[chave] ? '#4CAF50' : '#1a1a1a';
+							cbRef.style.borderColor = cfg[chave] ? '#4CAF50' : '#8b6914';
+							iconRef.style.display = cfg[chave] ? '' : 'none';
+							salvarConfig(cfg);
+						};
+					})(op.chave, cb, icon);
+					conteudoAlvos.appendChild(row);
+				}
+
+				const linhaAli = document.createElement('div');
+				linhaAli.style.cssText = 'display:flex;gap:4px;margin-bottom:6px;position:relative;z-index:1;';
+				const inputAli = document.createElement('input');
+				inputAli.type = 'text';
+				inputAli.placeholder = 'Pesquisar aliança...';
+				inputAli.style.cssText = 'flex:1;min-width:0;padding:4px 6px;background:#1a1a1a;border:1px solid #8b6914;border-radius:3px;color:#fc6;font-size:12px;font-family:Arial,sans-serif;';
+				const btnAdicAli = document.createElement('div');
+				btnAdicAli.style.cssText = 'cursor:pointer;padding:4px 8px;background:#8b6914;border-radius:3px;font-size:11px;font-weight:bold;color:#fff;white-space:nowrap;';
+				btnAdicAli.textContent = 'Adicionar';
+				btnAdicAli.onmouseover = function () { btnAdicAli.style.background = '#a67c1a'; };
+				btnAdicAli.onmouseout = function () { btnAdicAli.style.background = '#8b6914'; };
+				linhaAli.appendChild(inputAli);
+				linhaAli.appendChild(btnAdicAli);
+
+				const dropdown = document.createElement('div');
+				dropdown.style.cssText = 'position:absolute;top:100%;left:0;right:0;background:#1a1a1a;border:1px solid #8b6914;border-radius:0 0 3px 3px;max-height:150px;overflow-y:auto;z-index:100002;display:none;';
+				linhaAli.appendChild(dropdown);
+				conteudoAlvos.appendChild(linhaAli);
+
+				let aliSelecionada = null;
+
+				const mapaAliancas = {};
+				for (let i = 0; i < lista_jogadores.length; i++) {
+					const alId = lista_jogadores[i][2];
+					if (alId && !mapaAliancas[alId]) mapaAliancas[alId] = { id: alId, nome: mapaNomesAliancas[String(alId)] || 'Aliança ' + alId, membros: 0 };
+				}
+				for (let i = 0; i < lista_jogadores.length; i++) {
+					const alId = lista_jogadores[i][2];
+					if (alId && mapaAliancas[alId]) mapaAliancas[alId].membros++;
+				}
+				const aliancas = Object.values(mapaAliancas).sort(function (a, b) { return b.membros - a.membros; });
+
+				function renderizarDropdown(filtro) {
+					dropdown.innerHTML = '';
+					const termo = (filtro || '').toLowerCase();
+					const filtradas = termo ? aliancas.filter(function (a) { return a.nome.toLowerCase().indexOf(termo) !== -1 || String(a.id).indexOf(termo) !== -1; }) : aliancas;
+					const limitadas = filtradas.slice(0, 50);
+					for (let i = 0; i < limitadas.length; i++) {
+						const al = limitadas[i];
+						const item = document.createElement('div');
+						item.style.cssText = 'padding:5px 8px;font-size:11px;cursor:pointer;color:#fc6;border-bottom:1px solid rgba(139,105,20,0.2);';
+						item.textContent = al.nome + ' (' + al.id + ') — ' + al.membros + ' membros';
+						item.onmouseover = function () { item.style.background = 'rgba(255,255,255,0.1)'; };
+						item.onmouseout = function () { item.style.background = 'transparent'; };
+						item.onclick = (function (alianca) {
+							return function (e) {
+								e.stopPropagation();
+								aliSelecionada = alianca;
+								inputAli.value = alianca.nome + ' (' + alianca.id + ')';
+								dropdown.style.display = 'none';
+							};
+						})(al);
+						dropdown.appendChild(item);
+					}
+					if (limitadas.length === 0) {
+						const vazio = document.createElement('div');
+						vazio.style.cssText = 'padding:5px 8px;font-size:11px;color:#666;font-style:italic;';
+						vazio.textContent = 'Nenhuma aliança encontrada.';
+						dropdown.appendChild(vazio);
+					}
+				}
+
+				inputAli.onfocus = function () {
+					aliSelecionada = null;
+					renderizarDropdown(inputAli.value);
+					dropdown.style.display = 'block';
+				};
+
+				inputAli.oninput = function () {
+					aliSelecionada = null;
+					renderizarDropdown(inputAli.value);
+					dropdown.style.display = 'block';
+				};
+
+				document.addEventListener('click', function (e) {
+					if (!linhaAli.contains(e.target)) dropdown.style.display = 'none';
+				});
+
+				function renderizarListaAliancas() {
+					const antiga = conteudoAlvos.querySelector('.lista-aliancas');
+					if (antiga) antiga.remove();
+					const listaEl = document.createElement('div');
+					listaEl.className = 'lista-aliancas';
+					listaEl.style.cssText = 'max-height:120px;overflow-y:auto;';
+					if (!cfg.aliancasSelecionadas || cfg.aliancasSelecionadas.length === 0) {
+						const vazio = document.createElement('div');
+						vazio.style.cssText = 'font-size:11px;color:#666;font-style:italic;';
+						vazio.textContent = 'Nenhuma aliança adicionada.';
+						listaEl.appendChild(vazio);
+					} else {
+						for (let i = 0; i < cfg.aliancasSelecionadas.length; i++) {
+							const alId = cfg.aliancasSelecionadas[i];
+							const nome = mapaNomesAliancas[String(alId)] || 'Aliança ' + alId;
+							const row = document.createElement('div');
+							row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:3px 6px;border-radius:3px;margin:2px 0;';
+							row.onmouseover = function () { row.style.background = 'rgba(255,255,255,0.08)'; };
+							row.onmouseout = function () { row.style.background = 'transparent'; };
+							const txt = document.createElement('span');
+							txt.style.cssText = 'font-size:11px;color:#fc6;';
+							txt.textContent = nome + ' (' + alId + ')';
+							const btnRem = document.createElement('span');
+							btnRem.style.cssText = 'cursor:pointer;color:#c0392b;font-size:13px;font-weight:bold;padding:0 4px;';
+							btnRem.textContent = '\u2716';
+							btnRem.title = 'Remover';
+							btnRem.onclick = (function (idx) {
+								return function (e) {
+									e.stopPropagation();
+									cfg.aliancasSelecionadas.splice(idx, 1);
+									salvarConfig(cfg);
+									renderizarListaAliancas();
+								};
+							})(i);
+							row.appendChild(txt);
+							row.appendChild(btnRem);
+							listaEl.appendChild(row);
+						}
+					}
+					conteudoAlvos.appendChild(listaEl);
+				}
+
+				btnAdicAli.onclick = function () {
+					if (!aliSelecionada) { uw.HumanMessage.error('Selecione uma aliança da lista'); return; }
+					if (!cfg.aliancasSelecionadas) cfg.aliancasSelecionadas = [];
+					if (cfg.aliancasSelecionadas.indexOf(String(aliSelecionada.id)) !== -1) { uw.HumanMessage.error('Aliança já está na lista'); return; }
+					cfg.aliancasSelecionadas.push(String(aliSelecionada.id));
+					salvarConfig(cfg);
+					inputAli.value = '';
+					aliSelecionada = null;
+					dropdown.style.display = 'none';
+					renderizarListaAliancas();
+					uw.HumanMessage.success('Aliança adicionada');
+				};
+
+				renderizarListaAliancas();
+			}
+		}
+
+		tabFiltro.onclick = function () {
+			cfg.modoEnvio = 'filtro';
+			salvarConfig(cfg);
+			tabFiltro.style.borderColor = '#d4a017';
+			tabFiltro.style.background = '#3a2a10';
+			tabFiltro.style.color = '#fc6';
+			tabAlianca.style.borderColor = '#555';
+			tabAlianca.style.background = '#1a1a1a';
+			tabAlianca.style.color = '#888';
+			renderizarConteudoAlvos();
+		};
+
+		tabAlianca.onclick = function () {
+			cfg.modoEnvio = 'alianca';
+			salvarConfig(cfg);
+			tabAlianca.style.borderColor = '#d4a017';
+			tabAlianca.style.background = '#3a2a10';
+			tabAlianca.style.color = '#fc6';
+			tabFiltro.style.borderColor = '#555';
+			tabFiltro.style.background = '#1a1a1a';
+			tabFiltro.style.color = '#888';
+			renderizarConteudoAlvos();
+		};
+
+		renderizarConteudoAlvos();
+		secAlvos.appendChild(conteudoAlvos);
+
+		colAlvos.appendChild(secAlvos);
 		colunas.appendChild(colTerra);
 		colunas.appendChild(colNaval);
+		colunas.appendChild(colAlvos);
 		box.appendChild(colunas);
 
+		const colunas2 = document.createElement('div');
+		colunas2.style.cssText = 'display:flex;gap:16px;margin-bottom:12px;';
+
+		const colSeg = document.createElement('div');
+		colSeg.style.cssText = 'flex:1;min-width:0;';
+
 		const secSeg = document.createElement('div');
-		secSeg.style.cssText = 'margin-bottom:12px;';
+		secSeg.style.cssText = 'margin-bottom:0;';
 		const cabSeg = document.createElement('div');
 		cabSeg.style.cssText = 'font-size:13px;font-weight:bold;color:#d4a017;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid rgba(139,105,20,0.4);';
 		cabSeg.textContent = 'Segurança';
@@ -590,17 +933,191 @@
 
 		secSeg.appendChild(criarOpcaoSeguranca(
 			'Lista Negra',
-			'Bloqueia cidades que recusaram apoio por 24h, ignorando-as nos envios.',
+			'Bloqueia cidades que recusaram apoio por 24h.',
 			'listaNegraAtiva', cfg.listaNegraAtiva, btnLimpar, true
 		));
 
 		secSeg.appendChild(criarOpcaoSeguranca(
 			'Overlay de Envio',
-			'Exibe um painel sobre o jogo durante o envio de sentinelas, com botão para cancelar.',
+			'Exibe painel sobre o jogo durante envio.',
 			'overlayAtivo', cfg.overlayAtivo, null, true
 		));
 
-		box.appendChild(secSeg);
+		colSeg.appendChild(secSeg);
+		colunas2.appendChild(colSeg);
+
+		const colIlhas = document.createElement('div');
+		colIlhas.style.cssText = 'flex:1;min-width:0;';
+
+		const secIlhas = document.createElement('div');
+		secIlhas.style.cssText = 'margin-bottom:0;';
+		const cabIlhas = document.createElement('div');
+		cabIlhas.style.cssText = 'font-size:13px;font-weight:bold;color:#d4a017;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid rgba(139,105,20,0.4);';
+		cabIlhas.textContent = 'Ignorar Ilhas';
+		secIlhas.appendChild(cabIlhas);
+
+		const descIlhas = document.createElement('div');
+		descIlhas.style.cssText = 'font-size:11px;color:#aaa;margin-bottom:6px;line-height:1.4;';
+		descIlhas.textContent = 'Ilhas ignoradas não recebem sentinelas.';
+		secIlhas.appendChild(descIlhas);
+
+		const linhaIlha = document.createElement('div');
+		linhaIlha.style.cssText = 'display:flex;gap:4px;margin-bottom:6px;';
+		const inputIlhaX = document.createElement('input');
+		inputIlhaX.type = 'text';
+		inputIlhaX.placeholder = 'X';
+		inputIlhaX.style.cssText = 'width:40px;padding:4px 6px;background:#1a1a1a;border:1px solid #8b6914;border-radius:3px;color:#fc6;font-size:12px;font-family:Arial,sans-serif;';
+		const inputIlhaY = document.createElement('input');
+		inputIlhaY.type = 'text';
+		inputIlhaY.placeholder = 'Y';
+		inputIlhaY.style.cssText = 'width:40px;padding:4px 6px;background:#1a1a1a;border:1px solid #8b6914;border-radius:3px;color:#fc6;font-size:12px;font-family:Arial,sans-serif;';
+		const btnAdicIlha = document.createElement('div');
+		btnAdicIlha.style.cssText = 'cursor:pointer;padding:4px 8px;background:#8b6914;border-radius:3px;font-size:11px;font-weight:bold;color:#fff;';
+		btnAdicIlha.textContent = 'Adicionar';
+		btnAdicIlha.onmouseover = function () { btnAdicIlha.style.background = '#a67c1a'; };
+		btnAdicIlha.onmouseout = function () { btnAdicIlha.style.background = '#8b6914'; };
+		const btnUsarCidade = document.createElement('div');
+		btnUsarCidade.style.cssText = 'cursor:pointer;padding:4px 8px;background:#2c3e50;border-radius:3px;font-size:11px;font-weight:bold;color:#fff;';
+		btnUsarCidade.textContent = 'Usar minha cidade';
+		btnUsarCidade.onmouseover = function () { btnUsarCidade.style.background = '#34495e'; };
+		btnUsarCidade.onmouseout = function () { btnUsarCidade.style.background = '#2c3e50'; };
+		linhaIlha.appendChild(inputIlhaX);
+		linhaIlha.appendChild(inputIlhaY);
+		linhaIlha.appendChild(btnAdicIlha);
+		linhaIlha.appendChild(btnUsarCidade);
+		secIlhas.appendChild(linhaIlha);
+
+		function renderizarListaIlhas() {
+			const antiga = secIlhas.querySelector('.lista-ilhas');
+			if (antiga) antiga.remove();
+			const listaIlhas = document.createElement('div');
+			listaIlhas.className = 'lista-ilhas';
+			listaIlhas.style.cssText = 'max-height:200px;overflow-y:auto;';
+			if (!cfg.ilhasIgnoradas || cfg.ilhasIgnoradas.length === 0) {
+				const vazio = document.createElement('div');
+				vazio.style.cssText = 'font-size:11px;color:#666;font-style:italic;';
+				vazio.textContent = 'Nenhuma ilha ignorada.';
+				listaIlhas.appendChild(vazio);
+			} else {
+				for (let i = 0; i < cfg.ilhasIgnoradas.length; i++) {
+					const ilha = cfg.ilhasIgnoradas[i];
+					const row = document.createElement('div');
+					row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:3px 6px;border-radius:3px;margin:2px 0;';
+					row.onmouseover = function () { row.style.background = 'rgba(255,255,255,0.08)'; };
+					row.onmouseout = function () { row.style.background = 'transparent'; };
+					const txt = document.createElement('span');
+					txt.style.cssText = 'font-size:11px;color:#fc6;';
+					txt.textContent = ilha.x + '/' + ilha.y;
+					const btnRem = document.createElement('span');
+					btnRem.style.cssText = 'cursor:pointer;color:#c0392b;font-size:13px;font-weight:bold;padding:0 4px;';
+					btnRem.textContent = '\u2716';
+					btnRem.title = 'Remover';
+					btnRem.onclick = function (e) {
+						e.stopPropagation();
+						cfg.ilhasIgnoradas.splice(i, 1);
+						salvarConfig(cfg);
+						renderizarListaIlhas();
+					};
+					row.appendChild(txt);
+					row.appendChild(btnRem);
+					listaIlhas.appendChild(row);
+				}
+			}
+			secIlhas.appendChild(listaIlhas);
+		}
+
+		btnAdicIlha.onclick = function () {
+			const x = inputIlhaX.value.trim();
+			const y = inputIlhaY.value.trim();
+			if (!x || !y) { uw.HumanMessage.error('Insira as coordenadas X e Y'); return; }
+			if (!cfg.ilhasIgnoradas) cfg.ilhasIgnoradas = [];
+			const duplicada = cfg.ilhasIgnoradas.some(function (h) { return String(h.x) === String(x) && String(h.y) === String(y); });
+			if (duplicada) { uw.HumanMessage.error('Ilha já está na lista'); return; }
+			cfg.ilhasIgnoradas.push({ x: parseInt(x), y: parseInt(y) });
+			salvarConfig(cfg);
+			inputIlhaX.value = '';
+			inputIlhaY.value = '';
+			renderizarListaIlhas();
+			uw.HumanMessage.success('Ilha adicionada à lista de ignoradas');
+		};
+
+		btnUsarCidade.onclick = function () {
+			const cidades = [];
+			for (let id in uw.ITowns.towns) {
+				const c = uw.ITowns.towns[id];
+				let nome = '';
+				try { nome = c.get('name') || ''; } catch (e) {}
+				if (!nome) {
+					for (let i = 0; i < lista_cidades.length; i++) {
+						if (String(lista_cidades[i][0]) === String(id)) { nome = lista_cidades[i][2] || 'Cidade ' + id; break; }
+					}
+				}
+				cidades.push({ id: id, nome: nome || 'Cidade ' + id, ilhaX: c.getIslandCoordinateX(), ilhaY: c.getIslandCoordinateY() });
+			}
+			if (cidades.length === 0) { uw.HumanMessage.error('Nenhuma cidade encontrada'); return; }
+
+			const selModal = document.createElement('div');
+			selModal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:100001;display:flex;align-items:center;justify-content:center;';
+			const selOverlay = document.createElement('div');
+			selOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);';
+			const selBox = document.createElement('div');
+			selBox.style.cssText = 'position:relative;background:#2a1a0e;border:2px solid #8b6914;border-radius:8px;padding:20px;min-width:300px;max-height:60vh;display:flex;flex-direction:column;color:#fc6;font-family:Arial,sans-serif;font-size:13px;';
+			const selTitulo = document.createElement('div');
+			selTitulo.style.cssText = 'font-size:14px;font-weight:bold;margin-bottom:10px;text-align:center;';
+			selTitulo.textContent = 'Selecionar Cidade';
+			selBox.appendChild(selTitulo);
+
+			const campoBusca = document.createElement('input');
+			campoBusca.type = 'text';
+			campoBusca.placeholder = 'Buscar cidade...';
+			campoBusca.style.cssText = 'width:100%;padding:6px 8px;background:#1a1a1a;border:1px solid #8b6914;border-radius:4px;color:#fc6;font-size:12px;font-family:Arial,sans-serif;margin-bottom:10px;';
+			selBox.appendChild(campoBusca);
+
+			const listaContainer = document.createElement('div');
+			listaContainer.style.cssText = 'overflow-y:auto;flex:1;max-height:40vh;';
+			selBox.appendChild(listaContainer);
+
+			function renderizarCidades(filtro) {
+				listaContainer.innerHTML = '';
+				const filtradas = filtro ? cidades.filter(function (c) { return c.nome.toLowerCase().indexOf(filtro.toLowerCase()) !== -1; }) : cidades;
+				for (let i = 0; i < filtradas.length; i++) {
+					const c = filtradas[i];
+					const item = document.createElement('div');
+					item.style.cssText = 'padding:6px 8px;cursor:pointer;border-radius:3px;margin:2px 0;font-size:12px;';
+					item.onmouseover = function () { item.style.background = 'rgba(255,255,255,0.1)'; };
+					item.onmouseout = function () { item.style.background = 'transparent'; };
+					item.textContent = c.nome + ' (' + c.ilhaX + '/' + c.ilhaY + ')';
+					item.onclick = function () {
+						inputIlhaX.value = c.ilhaX;
+						inputIlhaY.value = c.ilhaY;
+						selModal.remove();
+					};
+					listaContainer.appendChild(item);
+				}
+			}
+
+			campoBusca.oninput = function () { renderizarCidades(campoBusca.value); };
+			renderizarCidades('');
+
+			const selFechar = document.createElement('div');
+			selFechar.style.cssText = 'margin-top:10px;cursor:pointer;padding:6px 16px;background:#555;border-radius:4px;font-size:12px;font-weight:bold;color:#fff;text-align:center;';
+			selFechar.textContent = 'Cancelar';
+			selFechar.onmouseover = function () { selFechar.style.background = '#777'; };
+			selFechar.onmouseout = function () { selFechar.style.background = '#555'; };
+			selFechar.onclick = function () { selModal.remove(); };
+			selBox.appendChild(selFechar);
+
+			selModal.appendChild(selOverlay);
+			selModal.appendChild(selBox);
+			document.body.appendChild(selModal);
+			selOverlay.onclick = function () { selModal.remove(); };
+			campoBusca.focus();
+		};
+
+		renderizarListaIlhas();
+		colIlhas.appendChild(secIlhas);
+		colunas2.appendChild(colIlhas);
+		box.appendChild(colunas2);
 
 		const btnFechar = document.createElement('div');
 		btnFechar.style.cssText = 'margin-top:10px;cursor:pointer;padding:6px 16px;background:#8b6914;border-radius:4px;font-size:12px;font-weight:bold;color:#fff;';
@@ -640,7 +1157,7 @@
 				const naval = {};
 				for (let i = 0; i < UNIDADES_TERRA.length; i++) terra[UNIDADES_TERRA[i].chave] = PADRAO_TERRA[UNIDADES_TERRA[i].chave];
 				for (let i = 0; i < UNIDADES_NAVAL.length; i++) naval[UNIDADES_NAVAL[i].chave] = PADRAO_NAVAL[UNIDADES_NAVAL[i].chave];
-				salvarConfig({ terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true });
+				salvarConfig({ terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true, enviarAliados: true, enviarSemAlianca: true, enviarFantasmas: true, enviarInimigos: false, ilhasIgnoradas: [], modoEnvio: 'filtro', aliancasSelecionadas: [] });
 				confirmModal.remove();
 				modal.remove();
 				uw.HumanMessage.success('Configura\u00e7\u00f5es restauradas');
@@ -812,7 +1329,32 @@
 					$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
 						'<div class="button_new a3" style="margin-left:5px;" title="Alterar configura\u00e7\u00f5es do envio de sentinelas"><div class="left"></div><div class="right"></div><div class="caption js-caption"> \u2699 <div class="effect js-effect"></div></div></div>'
 					);
+
+					const jaIgnorada = ilhaIgnorada(coordX, coordY);
+					const btnIgnorar = $('<div class="button_new a4" style="margin-left:5px;display:inline-block;" title="' + (jaIgnorada ? 'Remover ilha da lista de ignoradas' : 'Adicionar ilha à lista de ignoradas') + '"><div class="left"></div><div class="right"></div><div class="caption js-caption">' + (jaIgnorada ? ' Ilha Ignorada \u2713 ' : ' Ignorar Ilha ') + '<div class="effect js-effect"></div></div></div>');
+					$($(`#gpwnd_${wndid}`).find('#island_bbcode_id')).after(btnIgnorar);
+					btnIgnorar.on('click', function () {
+						const cfg = carregarConfig();
+						if (!cfg.ilhasIgnoradas) cfg.ilhasIgnoradas = [];
+						const idx = cfg.ilhasIgnoradas.findIndex(function (h) { return String(h.x) === String(coordX) && String(h.y) === String(coordY); });
+						if (idx >= 0) {
+							cfg.ilhasIgnoradas.splice(idx, 1);
+							btnIgnorar.find('.caption').html(' Ignorar Ilha <div class="effect js-effect"></div></div>');
+							btnIgnorar.attr('title', 'Adicionar ilha à lista de ignoradas');
+							uw.HumanMessage.success('Ilha removida da lista de ignoradas');
+						} else {
+							cfg.ilhasIgnoradas.push({ x: parseInt(coordX), y: parseInt(coordY) });
+							btnIgnorar.find('.caption').html(' Ilha Ignorada \u2713 <div class="effect js-effect"></div></div>');
+							btnIgnorar.attr('title', 'Remover ilha da lista de ignoradas');
+							uw.HumanMessage.success('Ilha adicionada à lista de ignoradas');
+						}
+						salvarConfig(cfg);
+					});
 					$(`#gpwnd_${wndid}`).on('click', '.a1', function () {
+						if (ilhaIgnorada(coordX, coordY)) {
+							uw.HumanMessage.error('Esta ilha está na lista de ignoradas');
+							return;
+						}
 						const cfg = carregarConfig();
 						let lista = obterCidades(coordX, coordY);
 						let cidades_jogador = jogadorTemCidades(lista);
@@ -821,7 +1363,7 @@
 							lista = removerSentinela(lista, 1, cidades_jogador[i]);
 							lista = removerSuporte(lista, cidades_jogador[i]);
 						}
-						lista = removerAliancas(lista);
+						lista = filtrarPorTipo(lista);
 						const cidadesJogadorIds = cidades_jogador.map(String);
 						let enviosFeitos = 0;
 						for (let i = 0; i < lista.length; i++) {
@@ -1032,8 +1574,16 @@
 				const ilhaX = partes[0];
 				const ilhaY = partes[1];
 
+				if (ilhaIgnorada(ilhaX, ilhaY)) {
+					dsDebug('Ilha ignorada: ' + chaveIlha);
+					atualizarTextoProgresso('Preparando ilhas... ' + indiceIlha + '/' + chavesIlha.length);
+					atualizarBarraProgresso(indiceIlha, chavesIlha.length);
+					setTimeout(processarProximaIhla, 25);
+					return;
+				}
+
 				let todasCidadesIlha = obterCidades(ilhaX, ilhaY);
-				todasCidadesIlha = removerAliancas(todasCidadesIlha);
+				todasCidadesIlha = filtrarPorTipo(todasCidadesIlha);
 
 				const minhasCidades = cidadesIlha.map(function (c) { return String(c.id); });
 				let cidadesAlvo = todasCidadesIlha.filter(function (id) {
