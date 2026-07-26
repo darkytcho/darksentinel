@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.7.0
+// @version      1.7.1
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -1308,96 +1308,109 @@
 	$(document).ajaxComplete(function () {
 		if (_ajxTimer) return;
 		_ajxTimer = setTimeout(function () { _ajxTimer = null; }, 500);
+		injetarBotoesIlha();
+	});
+
+	function injetarBotoesIlha() {
 		let wnds = GPWindowMgr.getOpen(Layout.wnd.TYPE_ISLAND);
 		for (let e in wnds) {
 			if (wnds.hasOwnProperty(e)) {
 				let wndid = wnds[e].getID();
-				let coord = $(`#gpwnd_${wndid}`).find('.islandinfo_coords').text();
-				const type = '[0-9][0-9]*/[0-9][0-9]*';
-				let coordX = coord.match(type)[0].split('/')[0];
-				let coordY = coord.match(type)[0].split('/')[1];
 				let wnd_window = document.getElementById(`gpwnd_${wndid}`);
+				if (!wnd_window) continue;
 
 				let btn1 = wnd_window.getElementsByClassName('a1')[0];
-				if (btn1 == null) {
-					$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
-						'<div class="button_new a1" title="Envia 1 sentinela para cada cidade aliada na ilha"><div class="left"></div><div class="right"></div><div class="caption js-caption"> Enviar Sentinelas <div class="effect js-effect"></div></div></div>'
-					);
-					$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
-						'<div class="button_new a2" style="margin-left:5px;" title="Envia sentinelas para todas as ilhas de uma vez"><div class="left"></div><div class="right"></div><div class="caption js-caption"> Sentinela Global <div class="effect js-effect"></div></div></div>'
-					);
-					$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
-						'<div class="button_new a3" style="margin-left:5px;" title="Alterar configura\u00e7\u00f5es do envio de sentinelas"><div class="left"></div><div class="right"></div><div class="caption js-caption"> \u2699 <div class="effect js-effect"></div></div></div>'
-					);
+				if (btn1) continue;
 
-					const jaIgnorada = ilhaIgnorada(coordX, coordY);
-					const btnIgnorar = $('<div class="button_new a4" style="margin-left:5px;display:inline-block;" title="' + (jaIgnorada ? 'Remover ilha da lista de ignoradas' : 'Adicionar ilha à lista de ignoradas') + '"><div class="left"></div><div class="right"></div><div class="caption js-caption">' + (jaIgnorada ? ' Ilha Ignorada \u2713 ' : ' Ignorar Ilha ') + '<div class="effect js-effect"></div></div></div>');
-					$($(`#gpwnd_${wndid}`).find('#island_bbcode_id')).after(btnIgnorar);
-					btnIgnorar.on('click', function () {
-						const cfg = carregarConfig();
-						if (!cfg.ilhasIgnoradas) cfg.ilhasIgnoradas = [];
-						const idx = cfg.ilhasIgnoradas.findIndex(function (h) { return String(h.x) === String(coordX) && String(h.y) === String(coordY); });
-						if (idx >= 0) {
-							cfg.ilhasIgnoradas.splice(idx, 1);
-							btnIgnorar.find('.caption').html(' Ignorar Ilha <div class="effect js-effect"></div></div>');
-							btnIgnorar.attr('title', 'Adicionar ilha à lista de ignoradas');
-							uw.HumanMessage.success('Ilha removida da lista de ignoradas');
-						} else {
-							cfg.ilhasIgnoradas.push({ x: parseInt(coordX), y: parseInt(coordY) });
-							btnIgnorar.find('.caption').html(' Ilha Ignorada \u2713 <div class="effect js-effect"></div></div>');
-							btnIgnorar.attr('title', 'Remover ilha da lista de ignoradas');
-							uw.HumanMessage.success('Ilha adicionada à lista de ignoradas');
-						}
-						salvarConfig(cfg);
-					});
-					$(`#gpwnd_${wndid}`).on('click', '.a1', function () {
-						if (ilhaIgnorada(coordX, coordY)) {
-							uw.HumanMessage.error('Esta ilha está na lista de ignoradas');
-							return;
-						}
-						const cfg = carregarConfig();
-						let lista = obterCidades(coordX, coordY);
-						let cidades_jogador = jogadorTemCidades(lista);
-						for (let i = 0; i < cidades_jogador.length; i++) {
-							lista = lista.filter((item) => item !== cidades_jogador[i]);
-							lista = removerSentinela(lista, 1, cidades_jogador[i]);
-							lista = removerSuporte(lista, cidades_jogador[i]);
-						}
-						lista = filtrarPorTipo(lista);
-						const cidadesJogadorIds = cidades_jogador.map(String);
-						let enviosFeitos = 0;
-						for (let i = 0; i < lista.length; i++) {
-							if (temSentinela(lista[i])) continue;
-							if (estaNaListaNegra(lista[i])) continue;
-							enviosFeitos++;
-							const idx = i;
-							setTimeout(() => {
-								if (temSentinela(lista[idx])) return;
-								if (estaNaListaNegra(lista[idx])) return;
-								for (let c = 0; c < cidadesJogadorIds.length; c++) {
-									const cid = cidadesJogadorIds[c];
-									const unitTerra = obterUnidadeParaCidade(cid, cfg);
-									if (unitTerra) { enviarSentinela(unitTerra, lista[idx], cid); return; }
-									const unitNaval = obterUnidadeNaval(cid, cfg);
-									if (unitNaval) { enviarSentinela(unitNaval, lista[idx], cid); return; }
-								}
-							}, i * 500);
-						}
-						if (enviosFeitos === 0) {
-							uw.HumanMessage.error('Nenhum alvo encontrado nesta ilha');
-						}
-					});
-					$(`#gpwnd_${wndid}`).on('click', '.a3', function () {
-						abrirConfig();
-					});
-					$(`#gpwnd_${wndid}`).on('click', '.a2', function () {
-						const cfg = carregarConfig();
-						enviarSentinelaGlobal(cfg);
-					});
-				}
+				let coord = $(`#gpwnd_${wndid}`).find('.islandinfo_coords').text();
+				const type = '[0-9][0-9]*/[0-9][0-9]*';
+				const match = coord.match(type);
+				if (!match) continue;
+				let coordX = match[0].split('/')[0];
+				let coordY = match[0].split('/')[1];
+
+				$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
+					'<div class="button_new a1" title="Envia 1 sentinela para cada cidade aliada na ilha"><div class="left"></div><div class="right"></div><div class="caption js-caption"> Enviar Sentinelas <div class="effect js-effect"></div></div></div>'
+				);
+				$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
+					'<div class="button_new a2" style="margin-left:5px;" title="Envia sentinelas para todas as ilhas de uma vez"><div class="left"></div><div class="right"></div><div class="caption js-caption"> Sentinela Global <div class="effect js-effect"></div></div></div>'
+				);
+				$($(`#gpwnd_${wndid}`).find('.island_info_wrapper')).append(
+					'<div class="button_new a3" style="margin-left:5px;" title="Alterar configura\u00e7\u00f5es do envio de sentinelas"><div class="left"></div><div class="right"></div><div class="caption js-caption"> \u2699 <div class="effect js-effect"></div></div></div>'
+				);
+
+				const jaIgnorada = ilhaIgnorada(coordX, coordY);
+				const btnIgnorar = $('<div class="button_new a4" style="margin-left:5px;display:inline-block;" title="' + (jaIgnorada ? 'Remover ilha da lista de ignoradas' : 'Adicionar ilha à lista de ignoradas') + '"><div class="left"></div><div class="right"></div><div class="caption js-caption">' + (jaIgnorada ? ' Ilha Ignorada \u2713 ' : ' Ignorar Ilha ') + '<div class="effect js-effect"></div></div></div>');
+				$($(`#gpwnd_${wndid}`).find('#island_bbcode_id')).after(btnIgnorar);
+				btnIgnorar.on('click', function () {
+					const cfg = carregarConfig();
+					if (!cfg.ilhasIgnoradas) cfg.ilhasIgnoradas = [];
+					const idx = cfg.ilhasIgnoradas.findIndex(function (h) { return String(h.x) === String(coordX) && String(h.y) === String(coordY); });
+					if (idx >= 0) {
+						cfg.ilhasIgnoradas.splice(idx, 1);
+						btnIgnorar.find('.caption').html(' Ignorar Ilha <div class="effect js-effect"></div></div>');
+						btnIgnorar.attr('title', 'Adicionar ilha à lista de ignoradas');
+						uw.HumanMessage.success('Ilha removida da lista de ignoradas');
+					} else {
+						cfg.ilhasIgnoradas.push({ x: parseInt(coordX), y: parseInt(coordY) });
+						btnIgnorar.find('.caption').html(' Ilha Ignorada \u2713 <div class="effect js-effect"></div></div>');
+						btnIgnorar.attr('title', 'Remover ilha da lista de ignoradas');
+						uw.HumanMessage.success('Ilha adicionada à lista de ignoradas');
+					}
+					salvarConfig(cfg);
+				});
+				$(`#gpwnd_${wndid}`).on('click', '.a1', function () {
+					if (ilhaIgnorada(coordX, coordY)) {
+						uw.HumanMessage.error('Esta ilha está na lista de ignoradas');
+						return;
+					}
+					const cfg = carregarConfig();
+					let lista = obterCidades(coordX, coordY);
+					let cidades_jogador = jogadorTemCidades(lista);
+					for (let i = 0; i < cidades_jogador.length; i++) {
+						lista = lista.filter((item) => item !== cidades_jogador[i]);
+						lista = removerSentinela(lista, 1, cidades_jogador[i]);
+						lista = removerSuporte(lista, cidades_jogador[i]);
+					}
+					lista = filtrarPorTipo(lista);
+					const cidadesJogadorIds = cidades_jogador.map(String);
+					let enviosFeitos = 0;
+					for (let i = 0; i < lista.length; i++) {
+						if (temSentinela(lista[i])) continue;
+						if (estaNaListaNegra(lista[i])) continue;
+						enviosFeitos++;
+						const idx = i;
+						setTimeout(() => {
+							if (temSentinela(lista[idx])) return;
+							if (estaNaListaNegra(lista[idx])) return;
+							for (let c = 0; c < cidadesJogadorIds.length; c++) {
+								const cid = cidadesJogadorIds[c];
+								const unitTerra = obterUnidadeParaCidade(cid, cfg);
+								if (unitTerra) { enviarSentinela(unitTerra, lista[idx], cid); return; }
+								const unitNaval = obterUnidadeNaval(cid, cfg);
+								if (unitNaval) { enviarSentinela(unitNaval, lista[idx], cid); return; }
+							}
+						}, i * 500);
+					}
+					if (enviosFeitos === 0) {
+						uw.HumanMessage.error('Nenhum alvo encontrado nesta ilha');
+					}
+				});
+				$(`#gpwnd_${wndid}`).on('click', '.a3', function () {
+					abrirConfig();
+				});
+				$(`#gpwnd_${wndid}`).on('click', '.a2', function () {
+					const cfg = carregarConfig();
+					enviarSentinelaGlobal(cfg);
+				});
 			}
 		}
+	}
+
+	const _ilhasObserver = new MutationObserver(function () {
+		injetarBotoesIlha();
 	});
+	_ilhasObserver.observe(document.body, { childList: true, subtree: true });
 
 	/* Intercepta resposta do send_units */
 	$(document).ajaxComplete(function (event, xhr, settings) {
