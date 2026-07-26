@@ -159,7 +159,7 @@
 		div.style.width = '50px';
 		div.style.height = '50px';
 		div.style.position = 'absolute';
-		div.style.background = 'url(data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50"><path d="M25 2 L47 12 V28 C47 38 37 46 25 48 C13 46 3 38 3 28 V12 Z" fill="%234CAF50" stroke="%232E7D32" stroke-width="2"/><text x="25" y="32" text-anchor="middle" fill="white" font-size="20" font-weight="bold">S</text></svg>') + ')';
+		div.style.background = 'url(data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50"><path d="M25 2 L47 12 V28 C47 38 37 46 25 48 C13 46 3 38 3 28 V12 Z" fill="#4CAF50" stroke="#2E7D32" stroke-width="2"/><text x="25" y="32" text-anchor="middle" fill="white" font-size="20" font-weight="bold">S</text></svg>') + ')';
 		div.style.zIndex = 'auto';
 		div.style.cursor = 'pointer';
 		div.innerHTML = `
