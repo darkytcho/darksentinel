@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.6.2
+// @version      1.6.3
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -411,7 +411,7 @@
 
 		const titulo = document.createElement('div');
 		titulo.style.cssText = 'font-size:15px;font-weight:bold;margin-bottom:6px;text-align:center;border-bottom:1px solid #8b6914;padding-bottom:8px;';
-		titulo.textContent = 'Configurações - Dark Sentinel (1.6.2)';
+		titulo.textContent = 'Configurações - Dark Sentinel (1.6.3)';
 		box.appendChild(titulo);
 
 		const descGeral = document.createElement('div');
@@ -680,6 +680,7 @@
 
 	let cancelarEnvio = false;
 	let pendingResolve = null;
+	let geracaoEnvio = 0;
 
 	function delay(ms) {
 		return new Promise(function (r) { setTimeout(r, ms); });
@@ -687,11 +688,13 @@
 
 	function enviarSentinelaPromise(unidade, destinoId, origemId) {
 		return new Promise(function (resolve) {
+			geracaoEnvio++;
+			const minhaGeracao = geracaoEnvio;
 			if (pendingResolve) pendingResolve(null);
-			pendingResolve = function (resp) {
+			pendingResolve = { resolve: function (resp) {
 				pendingResolve = null;
 				resolve(resp);
-			};
+			}, geracao: minhaGeracao };
 			enviarSentinela(unidade, destinoId, origemId);
 		});
 	}
@@ -878,13 +881,14 @@
 							if (match) targetId = match[1];
 						}
 					}
-					if (targetId) {
+					if (targetId && pendingResolve && pendingResolve.geracao === geracaoEnvio) {
 						adicionarListaNegra(targetId);
 					}
 				}
 			} catch (e) {}
-			if (pendingResolve) {
-				setTimeout(function () { pendingResolve({ success: !teveErro }); }, 0);
+			if (pendingResolve && pendingResolve.geracao === geracaoEnvio) {
+				var resolver = pendingResolve.resolve;
+				setTimeout(function () { resolver({ success: !teveErro }); }, 0);
 			}
 		}
 	});

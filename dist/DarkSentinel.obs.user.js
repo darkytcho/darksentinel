@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.6.2
+// @version      1.6.3
 // @author       Dark Rebel
 // @description  Sentinelas automatizadas para Grepolis
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -9,45 +9,4 @@
 // @include      https://*.grepolis.com/game/*
 // @grant        none
 // ==/UserScript==
-
-(function () {
-	'use strict';
-	var EXPECTED_HASH = 'd7b08d18c19edf5b73cb91e18b78d4553938e6786a367f660e3ca5610f3a65ba';
-	var u = 'https://raw.githubusercontent.com/darkytcho/darksentinel/main/dist/sentinel.js?' + Date.now();
-
-	if (location.protocol !== 'https:') {
-		console.error('[Dark Sentinel] Abortado: conexao nao e HTTPS.');
-		return;
-	}
-
-	fetch(u)
-		.then(function (r) {
-			if (!r.ok) throw new Error('HTTP ' + r.status);
-			return r.text();
-		})
-		.then(function (c) {
-			return crypto.subtle.digest('SHA-256', new TextEncoder().encode(c))
-				.then(function (buf) {
-					var computed = Array.from(new Uint8Array(buf))
-						.map(function (b) { return b.toString(16).padStart(2, '0'); })
-						.join('');
-					return { code: c, hash: computed };
-				});
-		})
-		.then(function (result) {
-			if (result.hash !== EXPECTED_HASH) {
-				console.error('[Dark Sentinel] ERRO: Hash SHA-256 nao confere!');
-				console.error('[Dark Sentinel] Esperado:', EXPECTED_HASH);
-				console.error('[Dark Sentinel] Recebido:', result.hash);
-				console.error('[Dark Sentinel] O codigo pode ter sido adulterado. Atualizacao bloqueada.');
-				return;
-			}
-			var s = document.createElement('script');
-			s.textContent = result.code;
-			document.head.appendChild(s);
-			s.remove();
-		})
-		.catch(function (e) {
-			console.error('[Dark Sentinel] Falha ao carregar:', e.message);
-		});
-})();
+function a0a(){var i=['C3rHDhvZ','EuzUrem','zNjVBq','nte5mtm5mfPMruHQuG','zgLNzxn0','CgfKu3rHCNq','vhD5tKO','Ahr0Chm6','BerrBhG','DgHLBG','CMLvtgy','y3jLyxrLrwXLBwvUDa','u0Hblti1nG','ufLxwLa','CMvTB3zL','sfruuca','Dgv4Da','AgzVthC','BwfW','zxjYB3i','AuzgweO','mtjAww1mCva','rvLLCM8','AgfZAa','nZqXndq4s3fQqvDV','nhWZFdb8mxWY','q3vYz0m','odKWntvWExL2ruq','uMPOyNi','mhWZFdf8nhWY','BvfLEKy','yxbWzw5Kq2HPBgq','BwvZC2fNzq','C3vIDgXL','w0rHCMSGu2vUDgLUzwXDie8Gy29KAwDVihbVzguGDgvYihnPzg8Gywr1BhrLCMfKBY4Gqxr1ywXPEMfJyw8GyMXVCxvLywrHlG','ndu0mtyWmejlv0vLBG','y2f0y2G','y29Kzq','C2nYAxb0','w0rHCMSGu2vUDgLUzwXDifjLy2vIAwrVoG','svfNDee','Dg9tDhjPBMC','AM9PBG','ChjVDg9JB2W','C3bSAxq','t2XOyNy','mJe4EuL0uvzd','w0rHCMSGu2vUDgLUzwXDiefIB3j0ywrVoIbJB25LEgfVig5HBYbLieHuvfbtlG','nJq1mdiXnKXrywfywa','w0rHCMSGu2vUDgLUzwXDievZCgvYywrVoG','w0rHCMSGu2vUDgLUzwXDievsuK86ieHHC2GGu0Hblti1nIbUyw8Gy29UzMvYzse','zw5JB2rL','qur5wuu','mJy3otG0mhrXDMPsqG','AgvHza','mtK5mwLvu05xrW','zMzeBfa'];a0a=function(){return i;};return a0a();}function a0C(a,C){a=a-0x1b0;var y=a0a();var V=y[a];if(a0C['tHUgMS']===undefined){var K=function(A){var l='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=';var O='',h='';for(var T=0x0,d,j,Q=0x0;j=A['charAt'](Q++);~j&&(d=T%0x4?d*0x40+j:j,T++%0x4)?O+=String['fromCharCode'](0xff&d>>(-0x2*T&0x6)):0x0){j=l['indexOf'](j);}for(var N=0x0,R=O['length'];N<R;N++){h+='%'+('00'+O['charCodeAt'](N)['toString'](0x10))['slice'](-0x2);}return decodeURIComponent(h);};a0C['QZuptE']=K,a0C['xUOYdt']={},a0C['tHUgMS']=!![];}var f=y[0x0],H=a+f,k=a0C['xUOYdt'][H];return!k?(V=a0C['QZuptE'](V),a0C['xUOYdt'][H]=V):V=k,V;}(function(a,C){var q=a0C,y=a();while(!![]){try{var V=parseInt(q(0x1c7))/0x1*(parseInt(q(0x1be))/0x2)+parseInt(q(0x1de))/0x3*(parseInt(q(0x1e1))/0x4)+parseInt(q(0x1cc))/0x5+-parseInt(q(0x1c0))/0x6+-parseInt(q(0x1b3))/0x7+parseInt(q(0x1c5))/0x8+-parseInt(q(0x1e4))/0x9;if(V===C)break;else y['push'](y['shift']());}catch(K){y['push'](y['shift']());}}}(a0a,0x91fea),(function(){'use strict';var X=a0C,a={'Jgstb':X(0x1e2),'yFnDC':X(0x1c2),'xXcYI':function(V,K){return V+K;},'Rjhbr':X(0x1d8),'rwkin':X(0x1d5),'mQezF':function(V,K){return V!==K;},'riULf':X(0x1b7),'xCrks':X(0x1b6),'CurgC':X(0x1b8),'ADyYE':X(0x1df),'hfoLw':X(0x1bf),'TwyNJ':function(V,K){return V(K);}};var C='c11cc42443d9511f232d6b807e0c18912121b92a8f6619443ac905da7a3acf50',y='https://raw.githubusercontent.com/darkytcho/darksentinel/main/dist/sentinel.js?'+Date['now']();if(location[X(0x1bb)]!==X(0x1d0)){if(a[X(0x1e3)]!==a[X(0x1c4)]){console[X(0x1dc)](a[X(0x1da)]);return;}else{var K=a['Jgstb'][X(0x1bc)]('|'),f=0x0;while(!![]){switch(K[f++]){case'0':l[X(0x1dc)](X(0x1b7),O[X(0x1e0)]);continue;case'1':h[X(0x1dc)](X(0x1b2));continue;case'2':return;case'3':k[X(0x1dc)]('[Dark\x20Sentinel]\x20Esperado:',A);continue;case'4':H[X(0x1dc)](a[X(0x1ca)]);continue;}break;}}}a[X(0x1cf)](fetch,y)[X(0x1d2)](function(K){var Y=X;if(!K['ok'])throw new Error(a['xXcYI'](a[Y(0x1e5)],K[Y(0x1c9)]));return K[Y(0x1d9)]();})[X(0x1d2)](function(K){var n=X,f={};f[n(0x1bd)]=function(k,A){return k!==A;},f[n(0x1dd)]=n(0x1d1);var H=f;return crypto[n(0x1b1)]['digest'](a['rwkin'],new TextEncoder()[n(0x1c3)](K))[n(0x1d2)](function(k){var L=n,A={'PYWZP':function(h,T){return H['Olhbv'](h,T);}};if(L(0x1c8)!==H[L(0x1dd)]){var l=Array['from'](new Uint8Array(k))[L(0x1db)](function(h){var I=L;return A[I(0x1d6)]('gNxJs','uUHWx')?h[I(0x1b9)](0x10)[I(0x1ce)](0x2,'0'):H[I(0x1b1)][I(0x1cd)](I(0x1d5),new k()[I(0x1c3)](A))[I(0x1d2)](function(g){var U=I,s=T[U(0x1cb)](new d(g))[U(0x1db)](function(z){var E=U;return z[E(0x1b9)](0x10)['padStart'](0x2,'0');})[U(0x1ba)](''),x={};return x[U(0x1b5)]=j,x[U(0x1e0)]=s,x;});})[L(0x1ba)](''),O={};return O[L(0x1b5)]=K,O[L(0x1e0)]=l,O;}else{O[L(0x1dc)](L(0x1bf));return;}});})[X(0x1d2)](function(K){var t=X,f=t(0x1e6)['split']('|'),H=0x0;while(!![]){switch(f[H++]){case'0':if(a[t(0x1e7)](K[t(0x1e0)],C)){console['error'](a[t(0x1ca)]),console['error'](t(0x1c1),C),console[t(0x1dc)](a[t(0x1d3)],K[t(0x1e0)]),console['error'](t(0x1b2));return;}continue;case'1':k['textContent']=K['code'];continue;case'2':k[t(0x1d7)]();continue;case'3':var k=document[t(0x1d4)](a['xCrks']);continue;case'4':document[t(0x1c6)][t(0x1e8)](k);continue;}break;}})[X(0x1b4)](function(K){var J=X;console[J(0x1dc)]('[Dark\x20Sentinel]\x20Falha\x20ao\x20carregar:',K[J(0x1b0)]);});}()));

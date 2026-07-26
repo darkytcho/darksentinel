@@ -10,7 +10,7 @@
 (function () {
 	'use strict';
 
-	const CHAVE_LISTA_NEGRA = 'sentinela_lista_negra';
+	const CHAVE_LISTA_NEGRA = '\x6c\x6e';
 	let painel = null;
 	let logs = [];
 	let visivel = false;
