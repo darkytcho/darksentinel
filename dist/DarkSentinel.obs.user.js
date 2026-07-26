@@ -12,7 +12,7 @@
 
 (function () {
 	'use strict';
-	var EXPECTED_HASH = '126790fae4aac3fbe759bea269176cae89dc5b5fbf7ffcbfec6e425fd6abfa6f';
+	var EXPECTED_HASH = 'a60f800e96bf3fbead3067011c46fa95b7b2d5902bf54aecaea8d7e2598f0d63';
 	var u = 'https://raw.githubusercontent.com/darkytcho/darksentinel/main/dist/sentinel.js?' + Date.now();
 
 	if (location.protocol !== 'https:') {

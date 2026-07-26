@@ -15,12 +15,13 @@ const source = fs.readFileSync(SRC, 'utf8');
 
 console.log('[build] Obfuscando...');
 const obfuscatorBin = path.join(__dirname, 'node_modules', '.bin', 'javascript-obfuscator');
-const obfuscated = execSync(
-    `"${obfuscatorBin}" "${SRC}" --config "${CONFIG}"`,
+execSync(
+    `"${obfuscatorBin}" "${SRC}" --config "${CONFIG}" --output "${OUT_OBFUSCATED}"`,
     { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
 );
 
 console.log('[build] Calculando SHA-256...');
+const obfuscated = fs.readFileSync(OUT_OBFUSCATED);
 const hash = crypto.createHash('sha256').update(obfuscated).digest('hex');
 console.log('[build] Hash:', hash);
 
