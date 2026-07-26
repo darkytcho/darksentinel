@@ -1,15 +1,4 @@
-// ==UserScript==
-// @name         Dark Sentinel
-// @version      1.5
-// @author       Dark Rebel
-// @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
-// @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/Dark%20Sentinel.obs.user.js
-// @downloadURL  https://github.com/darkytcho/darksentinel/releases/latest/download/Dark%20Sentinel.obs.user.js
-// @include      http://*.grepolis.com/game/*
-// @include      https://*.grepolis.com/game/*
-// @grant        none
-// ==/UserScript==
-
+﻿
 (function () {
 	'use strict';
 	const uw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
