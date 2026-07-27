@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.7.1
+// @version      1.7.5
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -105,10 +105,10 @@
 	/* Verifica se a cidade já tem sentinela (tropas próprias) */
 	function temSentinela(id) {
 		const towns = Object.keys(uw.ITowns.towns);
-		for (let town of towns) {
-			if (town == id) return true;
-			const models = uw.ITowns.all_supporting_units.fragments[town].models;
-			for (let model of models) if (model.attributes.current_town_id == id) return true;
+		const modelos = uw.ITowns.all_supporting_units.fragments[id];
+		if (!modelos) return false;
+		for (let model of modelos.models) {
+			if (towns.indexOf(String(model.attributes.current_town_id)) !== -1) return true;
 		}
 		return false;
 	}
@@ -253,6 +253,20 @@
 		if (!cidade) return false;
 		const map = document.getElementById('m3');
 		if (!map) return false;
+		const cfg = carregarConfig();
+		const cor = cfg.corEscudo || '#00c800';
+		const r = parseInt(cor.slice(1, 3), 16) / 255;
+		const g = parseInt(cor.slice(3, 5), 16) / 255;
+		const b = parseInt(cor.slice(5, 7), 16) / 255;
+		const max = Math.max(r, g, b), min = Math.min(r, g, b);
+		let h = 0;
+		if (max !== min) {
+			const d = max - min;
+			if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+			else if (max === g) h = ((b - r) / d + 2) / 6;
+			else h = ((r - g) / d + 4) / 6;
+		}
+		const hue = Math.round(h * 360);
 		const x = parseInt(cidade.style.left);
 		const y = parseInt(cidade.style.top);
 		const shield = document.createElement('div');
@@ -266,7 +280,7 @@
 		shield.style.position = 'absolute';
 		shield.style.transform = 'translate(10px,10px)';
 		shield.style.backgroundSize = '95%';
-		shield.style.filter = 'hue-rotate(90deg) saturate(200%) brightness(0.9)';
+		shield.style.filter = `hue-rotate(${hue}deg) saturate(200%) brightness(0.9)`;
 		map.appendChild(shield);
 		return true;
 	}
@@ -454,13 +468,13 @@
 			let ordemNaval = cfg.ordemNaval;
 			if (!Array.isArray(ordemTerra)) ordemTerra = PADRAO_ORDEM_TERRA.slice();
 			if (!Array.isArray(ordemNaval)) ordemNaval = PADRAO_ORDEM_NAVAL.slice();
-			return { terra: terra, naval: naval, ordemTerra: ordemTerra, ordemNaval: ordemNaval, listaNegraAtiva: typeof cfg.listaNegraAtiva !== 'undefined' ? !!cfg.listaNegraAtiva : true, overlayAtivo: typeof cfg.overlayAtivo !== 'undefined' ? !!cfg.overlayAtivo : true, enviarAliados: typeof cfg.enviarAliados !== 'undefined' ? !!cfg.enviarAliados : true, enviarSemAlianca: typeof cfg.enviarSemAlianca !== 'undefined' ? !!cfg.enviarSemAlianca : true, enviarFantasmas: typeof cfg.enviarFantasmas !== 'undefined' ? !!cfg.enviarFantasmas : true, enviarInimigos: typeof cfg.enviarInimigos !== 'undefined' ? !!cfg.enviarInimigos : false, ilhasIgnoradas: Array.isArray(cfg.ilhasIgnoradas) ? cfg.ilhasIgnoradas : [], modoEnvio: cfg.modoEnvio === 'alianca' ? 'alianca' : 'filtro', aliancasSelecionadas: Array.isArray(cfg.aliancasSelecionadas) ? cfg.aliancasSelecionadas : [] };
+			return { terra: terra, naval: naval, ordemTerra: ordemTerra, ordemNaval: ordemNaval, listaNegraAtiva: typeof cfg.listaNegraAtiva !== 'undefined' ? !!cfg.listaNegraAtiva : true, overlayAtivo: typeof cfg.overlayAtivo !== 'undefined' ? !!cfg.overlayAtivo : true, enviarAliados: typeof cfg.enviarAliados !== 'undefined' ? !!cfg.enviarAliados : true, enviarSemAlianca: typeof cfg.enviarSemAlianca !== 'undefined' ? !!cfg.enviarSemAlianca : true, enviarFantasmas: typeof cfg.enviarFantasmas !== 'undefined' ? !!cfg.enviarFantasmas : true, enviarInimigos: typeof cfg.enviarInimigos !== 'undefined' ? !!cfg.enviarInimigos : false, ilhasIgnoradas: Array.isArray(cfg.ilhasIgnoradas) ? cfg.ilhasIgnoradas : [], modoEnvio: cfg.modoEnvio === 'alianca' ? 'alianca' : 'filtro', aliancasSelecionadas: Array.isArray(cfg.aliancasSelecionadas) ? cfg.aliancasSelecionadas : [], corEscudo: cfg.corEscudo || '#00c800' };
 		} catch (e) {
 			const terra = {};
 			const naval = {};
 			for (let i = 0; i < UNIDADES_TERRA.length; i++) terra[UNIDADES_TERRA[i].chave] = PADRAO_TERRA[UNIDADES_TERRA[i].chave];
 			for (let i = 0; i < UNIDADES_NAVAL.length; i++) naval[UNIDADES_NAVAL[i].chave] = PADRAO_NAVAL[UNIDADES_NAVAL[i].chave];
-			return { terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true, enviarAliados: true, enviarSemAlianca: true, enviarFantasmas: true, enviarInimigos: false, ilhasIgnoradas: [], modoEnvio: 'filtro', aliancasSelecionadas: [] };
+			return { terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true, enviarAliados: true, enviarSemAlianca: true, enviarFantasmas: true, enviarInimigos: false, ilhasIgnoradas: [], modoEnvio: 'filtro', aliancasSelecionadas: [], corEscudo: '#00c800' };
 		}
 	}
 
@@ -943,6 +957,23 @@
 			'overlayAtivo', cfg.overlayAtivo, null, true
 		));
 
+		const linhaCor = document.createElement('div');
+		linhaCor.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:8px 0;padding:6px;border-radius:4px;';
+		const txtCor = document.createElement('span');
+		txtCor.style.cssText = 'font-size:11px;color:#fc6;';
+		txtCor.textContent = 'Cor do Escudo';
+		const inputCor = document.createElement('input');
+		inputCor.type = 'color';
+		inputCor.value = cfg.corEscudo || '#00c800';
+		inputCor.style.cssText = 'width:30px;height:24px;border:1px solid #8b6914;border-radius:3px;cursor:pointer;background:transparent;padding:0;';
+		inputCor.onchange = function () {
+			cfg.corEscudo = inputCor.value;
+			salvarConfig(cfg);
+		};
+		linhaCor.appendChild(txtCor);
+		linhaCor.appendChild(inputCor);
+		secSeg.appendChild(linhaCor);
+
 		colSeg.appendChild(secSeg);
 		colunas2.appendChild(colSeg);
 
@@ -1157,7 +1188,7 @@
 				const naval = {};
 				for (let i = 0; i < UNIDADES_TERRA.length; i++) terra[UNIDADES_TERRA[i].chave] = PADRAO_TERRA[UNIDADES_TERRA[i].chave];
 				for (let i = 0; i < UNIDADES_NAVAL.length; i++) naval[UNIDADES_NAVAL[i].chave] = PADRAO_NAVAL[UNIDADES_NAVAL[i].chave];
-				salvarConfig({ terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true, enviarAliados: true, enviarSemAlianca: true, enviarFantasmas: true, enviarInimigos: false, ilhasIgnoradas: [], modoEnvio: 'filtro', aliancasSelecionadas: [] });
+				salvarConfig({ terra: terra, naval: naval, ordemTerra: PADRAO_ORDEM_TERRA.slice(), ordemNaval: PADRAO_ORDEM_NAVAL.slice(), listaNegraAtiva: true, overlayAtivo: true, enviarAliados: true, enviarSemAlianca: true, enviarFantasmas: true, enviarInimigos: false, ilhasIgnoradas: [], modoEnvio: 'filtro', aliancasSelecionadas: [], corEscudo: '#00c800' });
 				confirmModal.remove();
 				modal.remove();
 				uw.HumanMessage.success('Configura\u00e7\u00f5es restauradas');
@@ -1549,17 +1580,35 @@
 			return;
 		}
 
+		cidadesJogador.sort(function (a, b) {
+			const nomeA = (a.get('name') || '').toLowerCase();
+			const nomeB = (b.get('name') || '').toLowerCase();
+			return nomeA.localeCompare(nomeB);
+		});
+
 		const ilhas = {};
+		const ordemIlhasChaves = [];
 		for (let i = 0; i < cidadesJogador.length; i++) {
 			const cidade = cidadesJogador[i];
 			const ilhaX = cidade.getIslandCoordinateX();
 			const ilhaY = cidade.getIslandCoordinateY();
 			const chaveIlha = ilhaX + '_' + ilhaY;
-			if (!ilhas[chaveIlha]) ilhas[chaveIlha] = [];
+			if (!ilhas[chaveIlha]) {
+				ilhas[chaveIlha] = [];
+				ordemIlhasChaves.push(chaveIlha);
+			}
 			ilhas[chaveIlha].push(cidade);
 		}
 
-		const chavesIlha = Object.keys(ilhas);
+		for (let i = 0; i < ordemIlhasChaves.length; i++) {
+			ilhas[ordemIlhasChaves[i]].sort(function (a, b) {
+				const nomeA = (a.get('name') || '').toLowerCase();
+				const nomeB = (b.get('name') || '').toLowerCase();
+				return nomeA.localeCompare(nomeB);
+			});
+		}
+
+		const chavesIlha = ordemIlhasChaves;
 		const filaPorIlha = {};
 		const ordemIlhas = [];
 		let indiceIlha = 0;
@@ -1604,6 +1653,7 @@
 				});
 
 				const enviosIlha = [];
+				const destinosAtendidos = {};
 				for (let j = 0; j < cidadesIlha.length; j++) {
 					const cidadeOrigem = cidadesIlha[j];
 					const temTerra = obterUnidadeParaCidade(cidadeOrigem.id, cfg);
@@ -1611,15 +1661,17 @@
 					if (!temTerra && !temNaval) continue;
 					for (let k = 0; k < cidadesAlvo.length; k++) {
 						const cidadeAlvoId = cidadesAlvo[k];
+						if (destinosAtendidos[cidadeAlvoId]) continue;
 						if (estaNaListaNegra(cidadeAlvoId)) continue;
 						if (temSentinela(cidadeAlvoId)) continue;
 						if (temSuporteACaminho(cidadeAlvoId)) continue;
 						if (temSentinelaDe(cidadeOrigem.id, cidadeAlvoId)) continue;
 						if (temTerra) {
 							enviosIlha.push({ origem: cidadeOrigem.id, destino: cidadeAlvoId, tipo: 'terra' });
-						}
-						if (temNaval) {
+							destinosAtendidos[cidadeAlvoId] = true;
+						} else if (temNaval) {
 							enviosIlha.push({ origem: cidadeOrigem.id, destino: cidadeAlvoId, tipo: 'naval' });
+							destinosAtendidos[cidadeAlvoId] = true;
 						}
 					}
 				}
