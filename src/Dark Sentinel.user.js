@@ -957,12 +957,19 @@
 		));
 
 		const linhaCor = document.createElement('div');
-		linhaCor.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:8px 0;padding:6px;border-radius:4px;';
-		const txtCor = document.createElement('span');
-		txtCor.style.cssText = 'font-size:11px;color:#fc6;';
-		txtCor.textContent = 'Cor do Escudo';
+		linhaCor.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;margin:8px 0;padding:6px;border-radius:4px;';
+		const infoCor = document.createElement('div');
+		infoCor.style.cssText = 'flex:1;margin-right:10px;text-align:left;';
+		const titCor = document.createElement('div');
+		titCor.style.cssText = 'font-size:12px;font-weight:bold;color:#fc6;margin-bottom:2px;';
+		titCor.textContent = 'Cor do Escudo';
+		const descCor = document.createElement('div');
+		descCor.style.cssText = 'font-size:10px;color:#aaa;line-height:1.3;';
+		descCor.textContent = 'Cor dos escudos exibidos no mapa para cidades com sentinela.';
+		infoCor.appendChild(titCor);
+		infoCor.appendChild(descCor);
 		const selectCor = document.createElement('select');
-		selectCor.style.cssText = 'padding:4px 6px;background:#1a1a1a;border:1px solid #8b6914;border-radius:3px;color:#fc6;font-size:12px;cursor:pointer;';
+		selectCor.style.cssText = 'padding:4px 6px;background:#1a1a1a;border:1px solid #8b6914;border-radius:3px;color:#fc6;font-size:12px;cursor:pointer;flex-shrink:0;margin-top:2px;';
 		const coresOpcoes = [
 			{ label: 'Azul', hue: 210 },
 			{ label: 'Verde', hue: 90 },
@@ -983,7 +990,7 @@
 			salvarConfig(cfg);
 			atualizarCorEscudos();
 		};
-		linhaCor.appendChild(txtCor);
+		linhaCor.appendChild(infoCor);
 		linhaCor.appendChild(selectCor);
 		secSeg.appendChild(linhaCor);
 
