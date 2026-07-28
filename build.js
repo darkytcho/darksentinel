@@ -33,40 +33,43 @@ const loaderCode = `(function () {
 	'use strict';
 	var EXPECTED_HASH = '${hash}';
 	var u = '${GITHUB_RAW}';
+	var win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
 	function injetarCodigo(c) {
-		var s = document.createElement('script');
+		var d = win.document;
+		var s = d.createElement('script');
 		s.textContent = c;
-		document.head.appendChild(s);
+		d.head.appendChild(s);
 		s.remove();
 	}
 
-	fetch(u, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } })
-		.then(function (r) {
-			if (!r.ok) throw new Error('HTTP ' + r.status);
-			return r.text();
-		})
-		.then(function (c) {
-			return crypto.subtle.digest('SHA-256', new TextEncoder().encode(c))
+	GM_xmlhttpRequest({
+		method: 'GET',
+		url: u,
+		onload: function (resp) {
+			if (resp.status !== 200) {
+				console.error('[Dark Sentinel] HTTP ' + resp.status);
+				return;
+			}
+			var c = resp.responseText;
+			crypto.subtle.digest('SHA-256', new TextEncoder().encode(c))
 				.then(function (buf) {
 					var computed = Array.from(new Uint8Array(buf))
 						.map(function (b) { return b.toString(16).padStart(2, '0'); })
 						.join('');
-					return { code: c, hash: computed };
+					if (computed !== EXPECTED_HASH) {
+						console.error('[Dark Sentinel] ERRO: Hash SHA-256 nao confere!');
+						console.error('[Dark Sentinel] Esperado:', EXPECTED_HASH);
+						console.error('[Dark Sentinel] Recebido:', computed);
+						return;
+					}
+					injetarCodigo(c);
 				});
-		})
-		.then(function (result) {
-			if (result.hash !== EXPECTED_HASH) {
-				console.error('[Dark Sentinel] ERRO: Hash SHA-256 nao confere!');
-				console.error('[Dark Sentinel] Esperado:', EXPECTED_HASH);
-				console.error('[Dark Sentinel] Recebido:', result.hash);
-				return;
-			}
-			injetarCodigo(result.code);
-		})
-		.catch(function (e) {
-			console.error('[Dark Sentinel] Falha ao carregar:', e.message);
-		});
+		},
+		onerror: function () {
+			console.error('[Dark Sentinel] Falha ao carregar via GM_xmlhttpRequest');
+		}
+	});
 })();
 `;
 
@@ -88,7 +91,8 @@ const metadata = `// ==UserScript==
 // @downloadURL  https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
 // @include      http://*.grepolis.com/game/*
 // @include      https://*.grepolis.com/game/*
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      raw.githubusercontent.com
 // ==/UserScript==
 `;
 
