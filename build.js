@@ -93,6 +93,7 @@ const metadata = `// ==UserScript==
 // @include      https://*.grepolis.com/game/*
 // @grant        GM_xmlhttpRequest
 // @connect      github.com
+// @connect      release-assets.githubusercontent.com
 // @connect      raw.githubusercontent.com
 // ==/UserScript==
 `;
