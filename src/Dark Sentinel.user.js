@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.7.12
+// @version      1.7.13
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -104,12 +104,14 @@
 
 	/* Verifica se a cidade já tem sentinela (tropas próprias) */
 	function temSentinela(id) {
-		const towns = Object.keys(uw.ITowns.towns);
-		const modelos = uw.ITowns.all_supporting_units.fragments[id];
-		if (!modelos) return false;
-		for (let model of modelos.models) {
-			if (towns.indexOf(String(model.attributes.current_town_id)) !== -1) return true;
-		}
+		try {
+			const towns = Object.keys(uw.ITowns.towns);
+			const modelos = uw.ITowns.all_supporting_units.fragments[id];
+			if (!modelos) return false;
+			for (let model of modelos.models) {
+				if (towns.indexOf(String(model.attributes.current_town_id)) !== -1) return true;
+			}
+		} catch (e) {}
 		return false;
 	}
 
@@ -1249,6 +1251,7 @@
 	// ========================
 
 	let cancelarEnvio = false;
+	let enviandoGlobal = false;
 	let pendingResolve = null;
 	let geracaoEnvio = 0;
 
@@ -1260,7 +1263,7 @@
 		return new Promise(function (resolve) {
 			geracaoEnvio++;
 			const minhaGeracao = geracaoEnvio;
-			if (pendingResolve) pendingResolve(null);
+			if (pendingResolve) pendingResolve.resolve(null);
 			pendingResolve = { resolve: function (resp) {
 				pendingResolve = null;
 				resolve(resp);
@@ -1271,11 +1274,13 @@
 
 	/* Verifica se uma cidade específica já enviou sentinela para outra */
 	function temSentinelaDe(origemId, destinoId) {
-		const modelos = uw.ITowns.all_supporting_units.fragments[destinoId];
-		if (!modelos) return false;
-		for (let model of modelos.models) {
-			if (model.attributes.current_town_id == origemId) return true;
-		}
+		try {
+			const modelos = uw.ITowns.all_supporting_units.fragments[destinoId];
+			if (!modelos) return false;
+			for (let model of modelos.models) {
+				if (model.attributes.current_town_id == origemId) return true;
+			}
+		} catch (e) {}
 		return false;
 	}
 
@@ -1455,6 +1460,7 @@
 					abrirConfig();
 				});
 				$(`#gpwnd_${wndid}`).on('click', '.a2', function () {
+					if (enviandoGlobal) { uw.HumanMessage.error('Envio ja em andamento'); return; }
 					try {
 						const cfg = carregarConfig();
 						enviarSentinelaGlobal(cfg);
@@ -1600,6 +1606,7 @@
 
 	function enviarSentinelaGlobal(cfg) {
 		if (!cfg) cfg = carregarConfig();
+		enviandoGlobal = true;
 		const cidadesJogador = [];
 		for (let id in uw.ITowns.towns) {
 			cidadesJogador.push(uw.ITowns.towns[id]);
@@ -1778,6 +1785,7 @@
 
 			setTimeout(function () {
 				removerJanelaProgresso();
+				enviandoGlobal = false;
 				if (semUnidades > 0) {
 					uw.HumanMessage.error(enviadas + ' enviadas, ' + semUnidades + ' sem unidades');
 				} else {
