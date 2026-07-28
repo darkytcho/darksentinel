@@ -9,7 +9,7 @@ const OUT_OBFUSCATED = path.join(__dirname, 'dist', 'sentinel.js');
 const OUT_LOADER = path.join(__dirname, 'dist', 'DarkSentinel.obs.user.js');
 const TEMP_LOADER = path.join(__dirname, 'dist', '_loader_temp.js');
 
-const GITHUB_RAW = 'https://raw.githubusercontent.com/darkytcho/darksentinel/main/dist/sentinel.js';
+const GITHUB_RELEASE = 'https://github.com/darkytcho/darksentinel/releases/download/v' + JSON.parse(require('fs').readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version + '/sentinel.js';
 
 console.log('[build] Lendo source...');
 const source = fs.readFileSync(SRC, 'utf8');
@@ -32,7 +32,7 @@ const version = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'),
 const loaderCode = `(function () {
 	'use strict';
 	var EXPECTED_HASH = '${hash}';
-	var u = '${GITHUB_RAW}';
+	var u = '${GITHUB_RELEASE}';
 	var win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
 	function injetarCodigo(c) {
@@ -92,6 +92,7 @@ const metadata = `// ==UserScript==
 // @include      http://*.grepolis.com/game/*
 // @include      https://*.grepolis.com/game/*
 // @grant        GM_xmlhttpRequest
+// @connect      github.com
 // @connect      raw.githubusercontent.com
 // ==/UserScript==
 `;
