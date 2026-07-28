@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.7.14
+// @version      1.8.0
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -106,10 +106,13 @@
 	function temSentinela(id) {
 		try {
 			const towns = Object.keys(uw.ITowns.towns);
-			const modelos = uw.ITowns.all_supporting_units.fragments[id];
-			if (!modelos) return false;
-			for (let model of modelos.models) {
-				if (towns.indexOf(String(model.attributes.current_town_id)) !== -1) return true;
+			for (let town of towns) {
+				if (town == id) return true;
+				const fragment = uw.ITowns.all_supporting_units && uw.ITowns.all_supporting_units.fragments[town];
+				if (!fragment || !fragment.models) continue;
+				for (let model of fragment.models) {
+					if (model.attributes.current_town_id == id) return true;
+				}
 			}
 		} catch (e) {}
 		return false;
@@ -1626,12 +1629,6 @@
 			return;
 		}
 
-		cidadesJogador.sort(function (a, b) {
-			const nomeA = (a.get('name') || '').toLowerCase();
-			const nomeB = (b.get('name') || '').toLowerCase();
-			return nomeA.localeCompare(nomeB);
-		});
-
 		const ilhas = {};
 		const ordemIlhasChaves = [];
 		for (let i = 0; i < cidadesJogador.length; i++) {
@@ -1644,14 +1641,6 @@
 				ordemIlhasChaves.push(chaveIlha);
 			}
 			ilhas[chaveIlha].push(cidade);
-		}
-
-		for (let i = 0; i < ordemIlhasChaves.length; i++) {
-			ilhas[ordemIlhasChaves[i]].sort(function (a, b) {
-				const nomeA = (a.get('name') || '').toLowerCase();
-				const nomeB = (b.get('name') || '').toLowerCase();
-				return nomeA.localeCompare(nomeB);
-			});
 		}
 
 		const chavesIlha = ordemIlhasChaves;
