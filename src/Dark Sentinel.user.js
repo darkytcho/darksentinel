@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.8.0
+// @version      1.8.1
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -510,7 +510,7 @@
 
 		const titulo = document.createElement('div');
 		titulo.style.cssText = 'font-size:15px;font-weight:bold;margin-bottom:6px;text-align:center;border-bottom:1px solid #8b6914;padding-bottom:8px;';
-		titulo.textContent = 'Configurações - Dark Sentinel (1.7.0)';
+		titulo.textContent = 'Configurações - Dark Sentinel (1.8.1)';
 		box.appendChild(titulo);
 
 		const descGeral = document.createElement('div');
