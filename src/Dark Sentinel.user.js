@@ -1621,6 +1621,7 @@
 			cidadesJogador.push(uw.ITowns.towns[id]);
 		}
 		if (cidadesJogador.length === 0) {
+			enviandoGlobal = false;
 			uw.HumanMessage.error('Nenhuma cidade encontrada');
 			return;
 		}
@@ -1766,9 +1767,6 @@
 				for (let j = 0; j < enviosIlha.length; j++) {
 					if (cancelarEnvio) { dsDebug('Envio cancelado'); break; }
 					const envio = enviosIlha[j];
-					if (temSentinela(envio.destino)) { dsDebug('Destino ' + envio.destino + ' ja tem sentinela, pulando'); continue; }
-					if (temSuporteACaminho(envio.destino)) { dsDebug('Destino ' + envio.destino + ' ja tem suporte a caminho, pulando'); continue; }
-					if (temSentinelaDe(envio.origem, envio.destino)) { dsDebug('Origem ' + envio.origem + ' ja enviou para ' + envio.destino + ', pulando'); continue; }
 					let unidade = null;
 					if (envio.tipo === 'naval') {
 						unidade = obterUnidadeNaval(envio.origem, cfg);
