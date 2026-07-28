@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.7.13
+// @version      1.7.14
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
@@ -296,25 +296,30 @@
 	}
 
 	function atualizarMapa() {
-		const towns = Object.keys(uw.ITowns.towns);
-		let current = [];
-		towns.forEach((e) => {
-			const models = uw.ITowns.all_supporting_units.fragments[e].models;
-			models.forEach((m) => {
-				let attributes = m.attributes;
-				current.indexOf(attributes.current_town_id) === -1
-					? current.push(attributes.current_town_id)
-					: null;
+		try {
+			const towns = Object.keys(uw.ITowns.towns);
+			let current = [];
+			towns.forEach((e) => {
+				try {
+					const frag = uw.ITowns.all_supporting_units.fragments[e];
+					if (!frag || !frag.models) return;
+					frag.models.forEach((m) => {
+						let attributes = m.attributes;
+						current.indexOf(attributes.current_town_id) === -1
+							? current.push(attributes.current_town_id)
+							: null;
+					});
+				} catch (e2) {}
 			});
-		});
 
-		let removeShield = cidadesComSentinela.filter((x) => !current.includes(x));
-		let addShield = current.filter((x) => !cidadesComSentinela.includes(x));
-		removeShield.forEach((e) => removerEscudoVerde(e));
-		addShield.forEach((e) => {
-			if (!adicionarEscudoVerde(e)) current.splice(current.indexOf(e), 1);
-		});
-		cidadesComSentinela = current;
+			let removeShield = cidadesComSentinela.filter((x) => !current.includes(x));
+			let addShield = current.filter((x) => !cidadesComSentinela.includes(x));
+			removeShield.forEach((e) => removerEscudoVerde(e));
+			addShield.forEach((e) => {
+				if (!adicionarEscudoVerde(e)) current.splice(current.indexOf(e), 1);
+			});
+			cidadesComSentinela = current;
+		} catch (e) {}
 	}
 
 	// ========================
@@ -1287,29 +1292,33 @@
 	/* Retorna a unidade disponível para uma cidade específica (respeita config) */
 	function obterUnidadeParaCidade(cidadeId, cfg) {
 		if (!cfg) cfg = carregarConfig();
-		const cidade = uw.ITowns.towns[cidadeId];
-		if (!cidade) return null;
-		const unidades = cidade.getLandUnits();
-		const ordem = cfg.ordemTerra || PADRAO_ORDEM_TERRA;
-		for (let i = 0; i < ordem.length; i++) {
-			const k = ordem[i];
-			if (cfg.terra[k] && unidades[k] > 0) return k;
-		}
+		try {
+			const cidade = uw.ITowns.towns[cidadeId];
+			if (!cidade) return null;
+			const unidades = cidade.getLandUnits();
+			const ordem = cfg.ordemTerra || PADRAO_ORDEM_TERRA;
+			for (let i = 0; i < ordem.length; i++) {
+				const k = ordem[i];
+				if (cfg.terra[k] && unidades[k] > 0) return k;
+			}
+		} catch (e) {}
 		return null;
 	}
 
 	/* Retorna a unidade naval disponível para uma cidade específica (respeita config) */
 	function obterUnidadeNaval(cidadeId, cfg) {
 		if (!cfg) cfg = carregarConfig();
-		const cidade = uw.ITowns.towns[cidadeId];
-		if (!cidade) return null;
-		const unidades = cidade.units();
-		if (!unidades) return null;
-		const ordem = cfg.ordemNaval || PADRAO_ORDEM_NAVAL;
-		for (let i = 0; i < ordem.length; i++) {
-			const k = ordem[i];
-			if (cfg.naval[k] && uw.GameData.units[k] && uw.GameData.units[k].is_naval && unidades[k] > 0) return k;
-		}
+		try {
+			const cidade = uw.ITowns.towns[cidadeId];
+			if (!cidade) return null;
+			const unidades = cidade.units();
+			if (!unidades) return null;
+			const ordem = cfg.ordemNaval || PADRAO_ORDEM_NAVAL;
+			for (let i = 0; i < ordem.length; i++) {
+				const k = ordem[i];
+				if (cfg.naval[k] && uw.GameData.units[k] && uw.GameData.units[k].is_naval && unidades[k] > 0) return k;
+			}
+		} catch (e) {}
 		return null;
 	}
 
