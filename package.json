@@ -1,6 +1,6 @@
 {
   "name": "darksentinel",
-  "version": "1.8.5",
+  "version": "1.8.6",
   "description": "Sentinelas automatizadas para Grepolis",
   "scripts": {
     "build": "node build.js"

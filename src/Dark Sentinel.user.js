@@ -1,14 +1,13 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.8.5
+// @version      1.8.6
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
 // @downloadURL  https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
 // @include      http://*.grepolis.com/game/*
 // @include      https://*.grepolis.com/game/*
-// @grant        GM_xmlhttpRequest
-// @connect      gpit.innogamescdn.com
+// @grant        none
 // ==/UserScript==
 
 (function () {
@@ -286,21 +285,16 @@
 	function carregarImagemEscudo() {
 		if (shieldImageLoaded) return shieldImageLoaded;
 		shieldImageLoaded = new Promise(function (resolve) {
-			GM_xmlhttpRequest({
-				method: 'GET',
-				url: SHIELD_URL,
-				responseType: 'blob',
-				onload: function (resp) {
-					if (resp.status !== 200) { console.log('[DS] Escudo HTTP', resp.status); resolve(null); return; }
-					const blob = resp.response;
+			fetch(SHIELD_URL).then(function (resp) {
+				if (!resp.ok) { console.log('[DS] Escudo HTTP', resp.status); resolve(null); return; }
+				resp.blob().then(function (blob) {
 					const url = URL.createObjectURL(blob);
 					const img = new Image();
 					img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
 					img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
 					img.src = url;
-				},
-				onerror: function (e) { console.log('[DS] Escudo erro:', e); resolve(null); }
-			});
+				});
+			}).catch(function (e) { console.log('[DS] Escudo erro:', e); resolve(null); });
 		});
 		return shieldImageLoaded;
 	}
@@ -671,7 +665,7 @@
 
 		const titulo = document.createElement('div');
 		titulo.style.cssText = 'font-size:15px;font-weight:bold;margin-bottom:6px;text-align:center;border-bottom:1px solid #8b6914;padding-bottom:8px;';
-		titulo.textContent = 'Configurações - Dark Sentinel (1.8.5)';
+		titulo.textContent = 'Configurações - Dark Sentinel (1.8.6)';
 		box.appendChild(titulo);
 
 		const descGeral = document.createElement('div');
