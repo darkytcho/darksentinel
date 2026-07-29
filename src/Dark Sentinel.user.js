@@ -7,7 +7,8 @@
 // @downloadURL  https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
 // @include      http://*.grepolis.com/game/*
 // @include      https://*.grepolis.com/game/*
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      gpit.innogamescdn.com
 // ==/UserScript==
 
 (function () {
@@ -285,16 +286,21 @@
 	function carregarImagemEscudo() {
 		if (shieldImageLoaded) return shieldImageLoaded;
 		shieldImageLoaded = new Promise(function (resolve) {
-			fetch(SHIELD_URL).then(function (resp) {
-				if (!resp.ok) { console.log('[DS] Escudo HTTP', resp.status); resolve(null); return; }
-				resp.blob().then(function (blob) {
+			GM_xmlhttpRequest({
+				method: 'GET',
+				url: SHIELD_URL,
+				responseType: 'blob',
+				onload: function (resp) {
+					if (resp.status !== 200) { console.log('[DS] Escudo HTTP', resp.status); resolve(null); return; }
+					const blob = resp.response;
 					const url = URL.createObjectURL(blob);
 					const img = new Image();
 					img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
 					img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
 					img.src = url;
-				});
-			}).catch(function (e) { console.log('[DS] Escudo erro:', e); resolve(null); });
+				},
+				onerror: function (e) { console.log('[DS] Escudo erro:', e); resolve(null); }
+			});
 		});
 		return shieldImageLoaded;
 	}

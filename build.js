@@ -35,6 +35,8 @@ const loaderCode = `(function () {
 	var u = '${GITHUB_RELEASE}';
 	var win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
+	win.GM_xmlhttpRequest = GM_xmlhttpRequest;
+
 	function injetarCodigo(c) {
 		var d = win.document;
 		var s = d.createElement('script');
@@ -95,6 +97,7 @@ const metadata = `// ==UserScript==
 // @connect      github.com
 // @connect      release-assets.githubusercontent.com
 // @connect      raw.githubusercontent.com
+// @connect      gpit.innogamescdn.com
 // ==/UserScript==
 `;
 
