@@ -35,7 +35,10 @@ const loaderCode = `(function () {
 	var u = '${GITHUB_RELEASE}';
 	var win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
-	win.GM_xmlhttpRequest = GM_xmlhttpRequest;
+	try {
+		Object.defineProperty(win, 'GM_setValue', { value: GM_setValue, enumerable: false, configurable: true, writable: false });
+		Object.defineProperty(win, 'GM_getValue', { value: GM_getValue, enumerable: false, configurable: true, writable: false });
+	} catch (e) {}
 
 	function injetarCodigo(c) {
 		var d = win.document;
@@ -49,28 +52,18 @@ const loaderCode = `(function () {
 		method: 'GET',
 		url: u,
 		onload: function (resp) {
-			if (resp.status !== 200) {
-				console.error('[Dark Sentinel] HTTP ' + resp.status);
-				return;
-			}
+			if (resp.status !== 200) return;
 			var c = resp.responseText;
 			crypto.subtle.digest('SHA-256', new TextEncoder().encode(c))
 				.then(function (buf) {
 					var computed = Array.from(new Uint8Array(buf))
 						.map(function (b) { return b.toString(16).padStart(2, '0'); })
 						.join('');
-					if (computed !== EXPECTED_HASH) {
-						console.error('[Dark Sentinel] ERRO: Hash SHA-256 nao confere!');
-						console.error('[Dark Sentinel] Esperado:', EXPECTED_HASH);
-						console.error('[Dark Sentinel] Recebido:', computed);
-						return;
-					}
+					if (computed !== EXPECTED_HASH) return;
 					injetarCodigo(c);
 				});
 		},
-		onerror: function () {
-			console.error('[Dark Sentinel] Falha ao carregar via GM_xmlhttpRequest');
-		}
+		onerror: function () {}
 	});
 })();
 `;
@@ -94,6 +87,8 @@ const metadata = `// ==UserScript==
 // @include      http://*.grepolis.com/game/*
 // @include      https://*.grepolis.com/game/*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
 // @connect      github.com
 // @connect      release-assets.githubusercontent.com
 // @connect      raw.githubusercontent.com

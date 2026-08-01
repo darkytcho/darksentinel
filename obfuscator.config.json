@@ -7,7 +7,7 @@
     "debugProtection": false,
     "identifierNamesGenerator": "mangled-shuffled",
     "renameGlobals": true,
-    "reservedNames": ["GM_xmlhttpRequest"],
+    "reservedNames": ["GM_xmlhttpRequest", "GM_setValue", "GM_getValue", "unsafeWindow"],
     "selfDefending": false,
     "stringArray": true,
     "stringArrayEncoding": ["base64"],

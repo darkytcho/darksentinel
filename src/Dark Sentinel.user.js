@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         Dark Sentinel
-// @version      1.8.6
+// @version      1.9.0
 // @author       Dark Rebel
 // @description  Envio automatizado de sentinelas, botão no contexto e indicador no mapa
 // @updateURL    https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
 // @downloadURL  https://github.com/darkytcho/darksentinel/releases/latest/download/DarkSentinel.obs.user.js
 // @include      http://*.grepolis.com/game/*
 // @include      https://*.grepolis.com/game/*
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        unsafeWindow
 // ==/UserScript==
 
 (function () {
@@ -15,6 +17,42 @@
 	const uw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
 	function dsDebug() {}
+
+	/* Armazenamento persistente: tenta GM_* (Tampermonkey), senão localStorage */
+	function storageGet(chave, padrao) {
+		try {
+			const gv = typeof GM_getValue === 'function' ? GM_getValue : typeof window.GM_getValue === 'function' ? window.GM_getValue : null;
+			if (gv) {
+				const v = gv(chave, null);
+				if (v !== null && v !== undefined) return v;
+				try {
+					const antigo = localStorage.getItem(chave);
+					if (antigo !== null) {
+						const sv = typeof GM_setValue === 'function' ? GM_setValue : typeof window.GM_setValue === 'function' ? window.GM_setValue : null;
+						if (sv) sv(chave, antigo);
+						return antigo;
+					}
+				} catch (e2) {}
+				return padrao;
+			}
+		} catch (e) {}
+		try {
+			const ls = localStorage.getItem(chave);
+			return ls !== null ? ls : padrao;
+		} catch (e) {}
+		return padrao;
+	}
+
+	function storageSet(chave, valor) {
+		try {
+			const sv = typeof GM_setValue === 'function' ? GM_setValue : typeof window.GM_setValue === 'function' ? window.GM_setValue : null;
+			if (sv) {
+				sv(chave, valor);
+				return;
+			}
+		} catch (e) {}
+		try { localStorage.setItem(chave, valor); } catch (e) {}
+	}
 
 	// ========================
 	// Dados do servidor
@@ -67,7 +105,6 @@
 		});
 	}
 
-	carregarDadosServidor();
 	setInterval(carregarDadosServidor, 60 * 60 * 1000);
 
 	// ========================
@@ -91,18 +128,6 @@
 		uw.gpAjax.ajaxPost('town_info', 'send_units', data);
 	}
 
-	/* Retorna a unidade disponível na cidade atual (respeita config) */
-	function selecionarUnidade(cfg) {
-		if (!cfg) cfg = carregarConfig();
-		let units = uw.ITowns.getCurrentTown().getLandUnits();
-		const ordem = cfg.ordemTerra || PADRAO_ORDEM_TERRA;
-		for (let i = 0; i < ordem.length; i++) {
-			const k = ordem[i];
-			if (cfg.terra[k] && units[k] > 0) return k;
-		}
-		return null;
-	}
-
 	/* Verifica se a cidade já tem sentinela (tropas próprias) */
 	function temSentinela(id) {
 		try {
@@ -119,15 +144,40 @@
 		return false;
 	}
 
+	/* Cache de movimentos em trânsito (evita leitura direta do MM em loops) */
+	let _colMov = null;
+	let _movCache = { porDestino: {}, porOrigem: {} };
+
+	function rebuildMovCache() {
+		const cache = { porDestino: {}, porOrigem: {} };
+		try {
+			const modelos = _colMov && _colMov.models || [];
+			for (let i = 0; i < modelos.length; i++) {
+				const a = modelos[i].attributes || {};
+				if (a.target_town_id != null) cache.porDestino[String(a.target_town_id)] = true;
+				if (a.home_town_id != null && a.target_town_id != null) {
+					if (!cache.porOrigem[String(a.home_town_id)]) cache.porOrigem[String(a.home_town_id)] = {};
+					cache.porOrigem[String(a.home_town_id)][String(a.target_town_id)] = true;
+				}
+			}
+		} catch (e) {}
+		_movCache = cache;
+	}
+
+	function inicializarCacheMovimentos() {
+		try {
+			if (!uw.MM || !uw.MM.getCollections || !uw.MM.getCollections().MovementsUnits) return;
+			_colMov = uw.MM.getCollections().MovementsUnits[0] || null;
+			if (_colMov && typeof _colMov.on === 'function') {
+				_colMov.on('add remove change reset', rebuildMovCache);
+			}
+		} catch (e) {}
+		rebuildMovCache();
+	}
+
 	/* Verifica se a cidade tem suporte a caminho */
 	function temSuporteACaminho(target_id) {
-		try {
-			let movments = uw.MM.getModels().MovementsUnits;
-			if (movments) for (let m in movments) if (movments[m].attributes.target_town_id == target_id) return true;
-			let support = uw.MM.getModels().MovementsSupport;
-			if (support) for (let m in support) if (support[m].attributes.target_town_id == target_id) return true;
-		} catch (e) {}
-		return false;
+		return !!_movCache.porDestino[String(target_id)];
 	}
 
 	/* Verifica se a cidade está na ilha atual */
@@ -147,14 +197,14 @@
 
 	function obterListaNegra() {
 		try {
-			return JSON.parse(localStorage.getItem(CHAVE_LISTA_NEGRA) || '{}');
+			return JSON.parse(storageGet(CHAVE_LISTA_NEGRA, '{}') || '{}');
 		} catch (e) {
 			return {};
 		}
 	}
 
 	function salvarListaNegra(lista) {
-		localStorage.setItem(CHAVE_LISTA_NEGRA, JSON.stringify(lista));
+		storageSet(CHAVE_LISTA_NEGRA, JSON.stringify(lista));
 	}
 
 	function estaNaListaNegra(cityId) {
@@ -208,10 +258,14 @@
 		uw.HumanMessage.error('Nenhuma tropa disponível na cidade atual');
 	}
 
+	function inicializarAssinaturaClique() {
 	uw.$.Observer(uw.GameEvents.map.town.click).subscribe((e, data) => {
 		if (cidadeEstaNaIlha(data.x, data.y)) {
 			if (temSentinela(data.id)) return;
 			if (temSuporteACaminho(data.id)) return;
+		} else {
+			const cfg = carregarConfig();
+			if (cfg.envioOutrasIlhas === 0) return;
 		}
 		let menu = uw.$('#context_menu');
 		if (!menu) return;
@@ -239,16 +293,14 @@
 		);
 		uw.$('#m1').click(() => {
 			if (!cidadeEstaNaIlha(data.x, data.y)) {
-				const cfg = carregarConfig();
-				if (cfg.envioOutrasIlhas === 1 || cfg.envioOutrasIlhas === 2) {
-					sendSentinelaOtherIsland(data.id);
-				}
+				sendSentinelaOtherIsland(data.id);
 			} else {
 				tratarCliqueMenuContexto(data);
 			}
 			menu.remove();
 		});
 	});
+	}
 
 	// ========================
 	// Indicador de Sentinela (escudo verde no mapa)
@@ -441,13 +493,16 @@
 
 	/* Remove cidades que já enviaram sentinela */
 	function removerSentinela(lista, type, cidade) {
-		let lun = uw.ITowns.all_supporting_units.fragments[cidade].models.length;
-		for (let i = 0; i < lun; i++) {
-			let sword = uw.ITowns.all_supporting_units.fragments[cidade].models[i].attributes.sword;
-			let archer = uw.ITowns.all_supporting_units.fragments[cidade].models[i].attributes.archer;
+		const support = uw.ITowns && uw.ITowns.all_supporting_units;
+		const fragment = support && support.fragments && support.fragments[cidade];
+		if (!fragment || !fragment.models) return lista;
+		for (let i = 0; i < fragment.models.length; i++) {
+			const model = fragment.models[i];
+			const attrs = model && model.attributes || {};
+			const sword = attrs.sword;
+			const archer = attrs.archer;
 			if (parseInt(sword) + parseInt(archer) >= type) {
-				let id = uw.ITowns.all_supporting_units.fragments[cidade].models[i].attributes.current_town_id;
-				lista = lista.filter((item) => item !== String(id));
+				lista = lista.filter((item) => item !== String(attrs.current_town_id));
 			}
 		}
 		return lista;
@@ -455,15 +510,9 @@
 
 	/* Remove cidades com suporte a caminho */
 	function removerSuporte(lista, cidade) {
-		let modelos = uw.MM.getCollections().MovementsUnits[0];
-		if (!modelos || !modelos.models.length) return lista;
-		let alvos = new Set();
-		for (let i = 0; i < modelos.models.length; i++) {
-			let m = modelos.models[i].attributes;
-			if (m.home_town_id == cidade) alvos.add(String(m.target_town_id));
-		}
-		if (alvos.size == 0) return lista;
-		return lista.filter((id) => !alvos.has(String(id)));
+		const alvos = _movCache.porOrigem[String(cidade)];
+		if (!alvos) return lista;
+		return lista.filter((id) => !alvos[String(id)]);
 	}
 
 	/* Verifica se a ilha está na lista de ignoradas */
@@ -506,7 +555,7 @@
 
 	function carregarConfig() {
 		try {
-			const cfg = JSON.parse(localStorage.getItem(CHAVE_CONFIG) || '{}');
+			const cfg = JSON.parse(storageGet(CHAVE_CONFIG, '{}') || '{}');
 			const terra = {};
 			const naval = {};
 			for (let i = 0; i < UNIDADES_TERRA.length; i++) {
@@ -530,7 +579,7 @@
 	}
 
 	function salvarConfig(cfg) {
-		localStorage.setItem(CHAVE_CONFIG, JSON.stringify(cfg));
+		storageSet(CHAVE_CONFIG, JSON.stringify(cfg));
 	}
 
 	function abrirConfig() {
@@ -546,17 +595,90 @@
 		overlay.onclick = function () { modal.remove(); };
 
 		const box = document.createElement('div');
-		box.style.cssText = 'position:relative;background:#2a1a0e;border:2px solid #8b6914;border-radius:8px;padding:20px;min-width:280px;max-height:80vh;overflow-y:auto;color:#fc6;font-family:Arial,sans-serif;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.6);';
+		box.style.cssText = 'position:relative;background:#2a1a0e;border:2px solid #8b6914;border-radius:8px;padding:20px;width:650px;height:650px;box-sizing:border-box;overflow-y:auto;color:#fc6;font-family:Arial,sans-serif;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.6);';
 
-		const titulo = document.createElement('div');
-		titulo.style.cssText = 'font-size:15px;font-weight:bold;margin-bottom:6px;text-align:center;border-bottom:1px solid #8b6914;padding-bottom:8px;';
-		titulo.textContent = 'Configurações - Dark Sentinel (1.8.6)';
-		box.appendChild(titulo);
+		const cabecalho = document.createElement('div');
+		cabecalho.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-20px -20px 14px;padding:10px 14px;background:linear-gradient(180deg,#3a2a10,#241707);border-bottom:2px solid #8b6914;border-radius:6px 6px 0 0;';
+
+		const tituloBox = document.createElement('div');
+		tituloBox.style.cssText = 'flex:1;display:flex;align-items:center;gap:8px;font-size:14px;font-weight:bold;color:#fc6;text-shadow:0 1px 2px rgba(0,0,0,0.6);user-select:none;';
+		const tituloTexto = document.createElement('span');
+		tituloTexto.textContent = 'Dark Sentinel';
+		const tituloVersao = document.createElement('span');
+		tituloVersao.style.cssText = 'font-size:10px;color:#b8942f;font-weight:normal;';
+		tituloVersao.textContent = '1.9.0';
+		tituloBox.appendChild(tituloTexto);
+		tituloBox.appendChild(tituloVersao);
+
+		const tituloCentro = document.createElement('div');
+		tituloCentro.style.cssText = 'font-size:13px;font-weight:bold;color:#b8942f;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;user-select:none;';
+		tituloCentro.textContent = 'Configurações';
+
+		const ladoDir = document.createElement('div');
+		ladoDir.style.cssText = 'flex:1;display:flex;justify-content:flex-end;';
+		const tabBar = document.createElement('div');
+		tabBar.style.cssText = 'display:flex;background:#1a1a1a;border:1px solid #8b6914;border-radius:6px;padding:2px;';
+
+		function criarTabConfig(texto, ativo) {
+			const tab = document.createElement('div');
+			tab.style.cssText = 'padding:5px 16px;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;transition:background 0.15s,color 0.15s;' + (ativo ? 'background:#d4a017;color:#2a1a0e;' : 'background:transparent;color:#997;');
+			tab.textContent = texto;
+			return tab;
+		}
+
+		const tabBtnSent = criarTabConfig('Sentinela', true);
+		const tabBtnOutras = criarTabConfig('Outras', false);
+		tabBar.appendChild(tabBtnSent);
+		tabBar.appendChild(tabBtnOutras);
+		ladoDir.appendChild(tabBar);
+
+		cabecalho.appendChild(tituloBox);
+		cabecalho.appendChild(tituloCentro);
+		cabecalho.appendChild(ladoDir);
+		box.appendChild(cabecalho);
 
 		const descGeral = document.createElement('div');
 		descGeral.style.cssText = 'font-size:12px;color:#aaa;margin-bottom:14px;line-height:1.5;text-align:left;';
 		descGeral.innerHTML = '<b style="color:#fc6">Terrestre</b> — Envia 1 tropa terrestre de uma ilha para cidades aliadas na mesma ilha.<br><b style="color:#fc6">Naval</b> — Envia 1 tropa naval de uma ilha para cidades aliadas na mesma ilha.<br><b style="color:#fc6">Prioridade:</b> As sentinelas terrestres são enviadas primeiro. A primeira unidade disponível na lista (de cima para baixo) é enviada.';
-		box.appendChild(descGeral);
+
+		const painelSent = document.createElement('div');
+		const painelOutras = document.createElement('div');
+		painelOutras.style.display = 'none';
+		box.appendChild(painelSent);
+		box.appendChild(painelOutras);
+		painelSent.appendChild(descGeral);
+
+		let abaAtiva = 'sent';
+		function alternarAba(abaSent) {
+			abaAtiva = abaSent ? 'sent' : 'outras';
+			if (abaSent) {
+				painelSent.style.display = '';
+				painelOutras.style.display = 'none';
+				tabBtnSent.style.background = '#d4a017';
+				tabBtnSent.style.color = '#2a1a0e';
+				tabBtnOutras.style.background = 'transparent';
+				tabBtnOutras.style.color = '#997';
+			} else {
+				painelSent.style.display = 'none';
+				painelOutras.style.display = '';
+				tabBtnOutras.style.background = '#d4a017';
+				tabBtnOutras.style.color = '#2a1a0e';
+				tabBtnSent.style.background = 'transparent';
+				tabBtnSent.style.color = '#997';
+			}
+		}
+		function aplicarHoverTab(tab, sent) {
+			tab.onmouseover = function () {
+				if ((sent && abaAtiva !== 'sent') || (!sent && abaAtiva !== 'outras')) tab.style.background = 'rgba(212,160,23,0.25)';
+			};
+			tab.onmouseout = function () {
+				if ((sent && abaAtiva !== 'sent') || (!sent && abaAtiva !== 'outras')) tab.style.background = 'transparent';
+			};
+		}
+		aplicarHoverTab(tabBtnSent, true);
+		aplicarHoverTab(tabBtnOutras, false);
+		tabBtnSent.onclick = function () { alternarAba(true); };
+		tabBtnOutras.onclick = function () { alternarAba(false); };
 
 		function criarCheck(label, chave, grupo, idx) {
 			const valor = cfg[grupo][chave];
@@ -785,7 +907,9 @@
 				function renderizarDropdown(filtro) {
 					dropdown.innerHTML = '';
 					const termo = (filtro || '').toLowerCase();
-					const filtradas = termo ? aliancas.filter(function (a) { return a.nome.toLowerCase().indexOf(termo) !== -1 || String(a.id).indexOf(termo) !== -1; }) : aliancas;
+					const jaSelecionadas = cfg.aliancasSelecionadas || [];
+					const disponiveis = aliancas.filter(function (a) { return jaSelecionadas.indexOf(String(a.id)) === -1; });
+					const filtradas = termo ? disponiveis.filter(function (a) { return a.nome.toLowerCase().indexOf(termo) !== -1 || String(a.id).indexOf(termo) !== -1; }) : disponiveis;
 					const limitadas = filtradas.slice(0, 50);
 					for (let i = 0; i < limitadas.length; i++) {
 						const al = limitadas[i];
@@ -807,7 +931,7 @@
 					if (limitadas.length === 0) {
 						const vazio = document.createElement('div');
 						vazio.style.cssText = 'padding:5px 8px;font-size:11px;color:#666;font-style:italic;';
-						vazio.textContent = 'Nenhuma aliança encontrada.';
+						vazio.textContent = termo ? 'Nenhuma aliança encontrada.' : 'Todas as alianças já estão na lista.';
 						dropdown.appendChild(vazio);
 					}
 				}
@@ -917,8 +1041,7 @@
 		colAlvos.appendChild(secAlvos);
 		colunas.appendChild(colTerra);
 		colunas.appendChild(colNaval);
-		colunas.appendChild(colAlvos);
-		box.appendChild(colunas);
+		painelSent.appendChild(colunas);
 
 		const colunas2 = document.createElement('div');
 		colunas2.style.cssText = 'display:flex;gap:16px;margin-bottom:12px;';
@@ -1109,7 +1232,7 @@
 		secSeg.appendChild(linhaCor);
 
 		colSeg.appendChild(secSeg);
-		colunas2.appendChild(colSeg);
+		painelOutras.appendChild(colSeg);
 
 		const colIlhas = document.createElement('div');
 		colIlhas.style.cssText = 'flex:1;min-width:0;';
@@ -1127,7 +1250,7 @@
 		secIlhas.appendChild(descIlhas);
 
 		const linhaIlha = document.createElement('div');
-		linhaIlha.style.cssText = 'display:flex;gap:4px;margin-bottom:6px;';
+		linhaIlha.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;';
 		const inputIlhaX = document.createElement('input');
 		inputIlhaX.type = 'text';
 		inputIlhaX.placeholder = 'X';
@@ -1137,19 +1260,13 @@
 		inputIlhaY.placeholder = 'Y';
 		inputIlhaY.style.cssText = 'width:40px;padding:4px 6px;background:#1a1a1a;border:1px solid #8b6914;border-radius:3px;color:#fc6;font-size:12px;font-family:Arial,sans-serif;';
 		const btnAdicIlha = document.createElement('div');
-		btnAdicIlha.style.cssText = 'cursor:pointer;padding:4px 8px;background:#8b6914;border-radius:3px;font-size:11px;font-weight:bold;color:#fff;';
+		btnAdicIlha.style.cssText = 'flex:1;text-align:center;cursor:pointer;padding:4px 8px;background:#8b6914;border-radius:3px;font-size:11px;font-weight:bold;color:#fff;';
 		btnAdicIlha.textContent = 'Adicionar';
 		btnAdicIlha.onmouseover = function () { btnAdicIlha.style.background = '#a67c1a'; };
 		btnAdicIlha.onmouseout = function () { btnAdicIlha.style.background = '#8b6914'; };
-		const btnUsarCidade = document.createElement('div');
-		btnUsarCidade.style.cssText = 'cursor:pointer;padding:4px 8px;background:#2c3e50;border-radius:3px;font-size:11px;font-weight:bold;color:#fff;';
-		btnUsarCidade.textContent = 'Usar minha cidade';
-		btnUsarCidade.onmouseover = function () { btnUsarCidade.style.background = '#34495e'; };
-		btnUsarCidade.onmouseout = function () { btnUsarCidade.style.background = '#2c3e50'; };
 		linhaIlha.appendChild(inputIlhaX);
 		linhaIlha.appendChild(inputIlhaY);
 		linhaIlha.appendChild(btnAdicIlha);
-		linhaIlha.appendChild(btnUsarCidade);
 		secIlhas.appendChild(linhaIlha);
 
 		function renderizarListaIlhas() {
@@ -1206,83 +1323,11 @@
 			uw.HumanMessage.success('Ilha adicionada à lista de ignoradas');
 		};
 
-		btnUsarCidade.onclick = function () {
-			const cidades = [];
-			for (let id in uw.ITowns.towns) {
-				const c = uw.ITowns.towns[id];
-				let nome = '';
-				try { nome = c.get('name') || ''; } catch (e) {}
-				if (!nome) {
-					for (let i = 0; i < lista_cidades.length; i++) {
-						if (String(lista_cidades[i][0]) === String(id)) { nome = lista_cidades[i][2] || 'Cidade ' + id; break; }
-					}
-				}
-				cidades.push({ id: id, nome: nome || 'Cidade ' + id, ilhaX: c.getIslandCoordinateX(), ilhaY: c.getIslandCoordinateY() });
-			}
-			if (cidades.length === 0) { uw.HumanMessage.error('Nenhuma cidade encontrada'); return; }
-
-			const selModal = document.createElement('div');
-			selModal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:100001;display:flex;align-items:center;justify-content:center;';
-			const selOverlay = document.createElement('div');
-			selOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);';
-			const selBox = document.createElement('div');
-			selBox.style.cssText = 'position:relative;background:#2a1a0e;border:2px solid #8b6914;border-radius:8px;padding:20px;min-width:300px;max-height:60vh;display:flex;flex-direction:column;color:#fc6;font-family:Arial,sans-serif;font-size:13px;';
-			const selTitulo = document.createElement('div');
-			selTitulo.style.cssText = 'font-size:14px;font-weight:bold;margin-bottom:10px;text-align:center;';
-			selTitulo.textContent = 'Selecionar Cidade';
-			selBox.appendChild(selTitulo);
-
-			const campoBusca = document.createElement('input');
-			campoBusca.type = 'text';
-			campoBusca.placeholder = 'Buscar cidade...';
-			campoBusca.style.cssText = 'width:100%;padding:6px 8px;background:#1a1a1a;border:1px solid #8b6914;border-radius:4px;color:#fc6;font-size:12px;font-family:Arial,sans-serif;margin-bottom:10px;';
-			selBox.appendChild(campoBusca);
-
-			const listaContainer = document.createElement('div');
-			listaContainer.style.cssText = 'overflow-y:auto;flex:1;max-height:40vh;';
-			selBox.appendChild(listaContainer);
-
-			function renderizarCidades(filtro) {
-				listaContainer.innerHTML = '';
-				const filtradas = filtro ? cidades.filter(function (c) { return c.nome.toLowerCase().indexOf(filtro.toLowerCase()) !== -1; }) : cidades;
-				for (let i = 0; i < filtradas.length; i++) {
-					const c = filtradas[i];
-					const item = document.createElement('div');
-					item.style.cssText = 'padding:6px 8px;cursor:pointer;border-radius:3px;margin:2px 0;font-size:12px;';
-					item.onmouseover = function () { item.style.background = 'rgba(255,255,255,0.1)'; };
-					item.onmouseout = function () { item.style.background = 'transparent'; };
-					item.textContent = c.nome + ' (' + c.ilhaX + '/' + c.ilhaY + ')';
-					item.onclick = function () {
-						inputIlhaX.value = c.ilhaX;
-						inputIlhaY.value = c.ilhaY;
-						selModal.remove();
-					};
-					listaContainer.appendChild(item);
-				}
-			}
-
-			campoBusca.oninput = function () { renderizarCidades(campoBusca.value); };
-			renderizarCidades('');
-
-			const selFechar = document.createElement('div');
-			selFechar.style.cssText = 'margin-top:10px;cursor:pointer;padding:6px 16px;background:#555;border-radius:4px;font-size:12px;font-weight:bold;color:#fff;text-align:center;';
-			selFechar.textContent = 'Cancelar';
-			selFechar.onmouseover = function () { selFechar.style.background = '#777'; };
-			selFechar.onmouseout = function () { selFechar.style.background = '#555'; };
-			selFechar.onclick = function () { selModal.remove(); };
-			selBox.appendChild(selFechar);
-
-			selModal.appendChild(selOverlay);
-			selModal.appendChild(selBox);
-			document.body.appendChild(selModal);
-			selOverlay.onclick = function () { selModal.remove(); };
-			campoBusca.focus();
-		};
-
 		renderizarListaIlhas();
 		colIlhas.appendChild(secIlhas);
+		colunas2.appendChild(colAlvos);
 		colunas2.appendChild(colIlhas);
-		box.appendChild(colunas2);
+		painelSent.appendChild(colunas2);
 
 		const btnFechar = document.createElement('div');
 		btnFechar.style.cssText = 'margin-top:10px;cursor:pointer;padding:6px 16px;background:#8b6914;border-radius:4px;font-size:12px;font-weight:bold;color:#fff;';
@@ -1385,10 +1430,11 @@
 	/* Verifica se uma cidade específica já enviou sentinela para outra */
 	function temSentinelaDe(origemId, destinoId) {
 		try {
-			const modelos = uw.ITowns.all_supporting_units.fragments[destinoId];
-			if (!modelos) return false;
-			for (let model of modelos.models) {
-				if (model.attributes.current_town_id == origemId) return true;
+			const support = uw.ITowns && uw.ITowns.all_supporting_units;
+			const fragment = support && support.fragments && support.fragments[origemId];
+			if (!fragment || !fragment.models) return false;
+			for (let model of fragment.models) {
+				if (model.attributes.current_town_id == destinoId) return true;
 			}
 		} catch (e) {}
 		return false;
@@ -1427,36 +1473,15 @@
 		return null;
 	}
 
-	/* Troca a cidade ativa no jogo */
-	function trocarCidadeAtiva(cidadeId) {
-		const cidade = uw.ITowns.towns[cidadeId];
-		if (!cidade) return false;
-
-		if (typeof uw.ITowns.setCurrentTown === 'function') {
-			try { uw.ITowns.setCurrentTown(cidade); return true; } catch (e) {}
-			try { uw.ITowns.setCurrentTown(cidadeId); return true; } catch (e) {}
-		}
-
-		const metodos = ['setCurrentTown', 'setAsCurrentTown', 'select', 'makeCurrent'];
-		for (let i = 0; i < metodos.length; i++) {
-			if (typeof cidade[metodos[i]] === 'function') {
-				try { cidade[metodos[i]](); return true; } catch (e) {}
-			}
-		}
-
-		try { uw.gpAjax.ajaxPost('town_overview', 'switch_town', { id: cidadeId }); return true; } catch (e) {}
-
-		const townElement = document.getElementById('town_' + cidadeId);
-		if (townElement) { try { townElement.click(); return true; } catch (e) {} }
-
-		return false;
-	}
-
-	/* Envia sentinela de uma cidade específica para outra */
-	function enviarSentinelaDe(origemId, destinoId, unidade) {
-		dsDebug('enviarSentinelaDe origem=' + origemId + ' destino=' + destinoId + ' unidade=' + unidade);
-		enviarSentinela(unidade, destinoId, origemId);
-		return true;
+	/* Retorna quantas unidades daquele tipo a cidade possui */
+	function contarUnidadeCidade(cidadeId, unit, naval) {
+		try {
+			const cidade = uw.ITowns.towns[cidadeId];
+			if (!cidade || !unit) return 0;
+			const unidades = naval ? cidade.units() : cidade.getLandUnits();
+			const qtd = unidades && unidades[unit];
+			return qtd > 0 ? qtd : 0;
+		} catch (e) { return 0; }
 	}
 
 	/* Retorna as cidades do jogador na ilha */
@@ -1477,11 +1502,13 @@
 	}
 
 	let _ajxTimer = null;
-	$(document).ajaxComplete(function () {
-		if (_ajxTimer) return;
-		_ajxTimer = setTimeout(function () { _ajxTimer = null; }, 500);
-		injetarBotoesIlha();
-	});
+	function inicializarAjaxComplete() {
+		$(document).ajaxComplete(function () {
+			if (_ajxTimer) return;
+			_ajxTimer = setTimeout(function () { _ajxTimer = null; }, 500);
+			injetarBotoesIlha();
+		});
+	}
 
 	function injetarBotoesIlha() {
 		let wnds = GPWindowMgr.getOpen(Layout.wnd.TYPE_ISLAND);
@@ -1558,6 +1585,7 @@
 		}
 
 		$(`#gpwnd_${wndid}`).on('click', '.a1', function () {
+			try {
 					if (ilhaIgnorada(coordX, coordY)) {
 						uw.HumanMessage.error('Esta ilha está na lista de ignoradas');
 						return;
@@ -1593,6 +1621,7 @@
 								}, i * 500);
 							}
 						});
+						return;
 					}
 					for (let i = 0; i < cidades_jogador.length; i++) {
 						lista = lista.filter((item) => item !== cidades_jogador[i]);
@@ -1624,7 +1653,10 @@
 					if (enviosFeitos === 0) {
 						uw.HumanMessage.error('Nenhum alvo encontrado nesta ilha');
 					}
-				});
+				} catch (e) {
+					uw.HumanMessage.error('Erro ao enviar sentinelas: ' + (e && e.message || e));
+				}
+			});
 				$(`#gpwnd_${wndid}`).on('click', '.a3', function () {
 					abrirConfig();
 				});
@@ -1642,46 +1674,51 @@
 		}
 	}
 
-	const _ilhasObserver = new MutationObserver(function () {
-		injetarBotoesIlha();
-	});
-	_ilhasObserver.observe(document.body, { childList: true, subtree: true });
+	function inicializarObserverIlhas() {
+		var _ilhasObserver = new MutationObserver(function () {
+			injetarBotoesIlha();
+		});
+		_ilhasObserver.observe(document.body, { childList: true, subtree: true });
+	}
 
 	/* Intercepta resposta do send_units */
-	$(document).ajaxComplete(function (event, xhr, settings) {
-		if (settings.url && settings.url.indexOf('send_units') !== -1) {
-			var teveErro = false;
-			try {
-				var resp = JSON.parse(xhr.responseText);
-				if (resp.json && resp.json.error) {
-					teveErro = true;
-					var targetId = null;
-					if (settings.data) {
-						var dados = typeof settings.data === 'string' ? settings.data : JSON.stringify(settings.data);
-						var jsonMatch = dados.match(/json=([^&]+)/);
-						if (jsonMatch) {
-							try {
-								var decoded = decodeURIComponent(jsonMatch[1]);
-								var parsed = JSON.parse(decoded);
-								targetId = parsed.id;
-							} catch (e2) {}
+	function inicializarInterceptadorEnvio() {
+		$(document).ajaxComplete(function (event, xhr, settings) {
+			if (settings.url && settings.url.indexOf('send_units') !== -1) {
+				var teveErro = false;
+				try {
+					var resp = JSON.parse(xhr.responseText);
+					if (resp.json && resp.json.error) {
+						teveErro = true;
+						var targetId = null;
+						if (settings.data) {
+							var dados = typeof settings.data === 'string' ? settings.data : JSON.stringify(settings.data);
+							var jsonMatch = dados.match(/json=([^&]+)/);
+							if (jsonMatch) {
+								try {
+									var decoded = decodeURIComponent(jsonMatch[1]);
+									var parsed = JSON.parse(decoded);
+									targetId = parsed.id;
+								} catch (e2) {}
+							}
+							if (!targetId) {
+								var match = dados.match(/id[=:](\d+)/);
+								if (match) targetId = match[1];
+							}
 						}
-						if (!targetId) {
-							var match = dados.match(/id[=:](\d+)/);
-							if (match) targetId = match[1];
+						if (targetId && pendingResolve && pendingResolve.geracao === geracaoEnvio) {
+							adicionarListaNegra(targetId);
 						}
 					}
-					if (targetId && pendingResolve && pendingResolve.geracao === geracaoEnvio) {
-						adicionarListaNegra(targetId);
-					}
+				} catch (e) {}
+				if (pendingResolve && pendingResolve.geracao === geracaoEnvio) {
+					var resolver = pendingResolve.resolve;
+					setTimeout(function () { resolver({ success: !teveErro }); }, 0);
 				}
-			} catch (e) {}
-			if (pendingResolve && pendingResolve.geracao === geracaoEnvio) {
-				var resolver = pendingResolve.resolve;
-				setTimeout(function () { resolver({ success: !teveErro }); }, 0);
+				rebuildMovCache();
 			}
-		}
-	});
+		});
+	}
 
 	// ========================
 	// Janela de progresso (única, muda posição conforme overlay)
@@ -1851,6 +1888,10 @@
 					const temTerra = obterUnidadeParaCidade(cidadeOrigem.id, cfg);
 					const temNaval = obterUnidadeNaval(cidadeOrigem.id, cfg);
 					if (!temTerra && !temNaval) continue;
+					const limiteTerra = temTerra ? contarUnidadeCidade(cidadeOrigem.id, temTerra, false) : 0;
+					const limiteNaval = temNaval ? contarUnidadeCidade(cidadeOrigem.id, temNaval, true) : 0;
+					let planejadosTerra = 0;
+					let planejadosNaval = 0;
 					for (let k = 0; k < cidadesAlvo.length; k++) {
 						const cidadeAlvoId = cidadesAlvo[k];
 						if (destinosAtendidos[cidadeAlvoId]) continue;
@@ -1858,12 +1899,14 @@
 						if (temSentinela(cidadeAlvoId)) continue;
 						if (temSuporteACaminho(cidadeAlvoId)) continue;
 						if (temSentinelaDe(cidadeOrigem.id, cidadeAlvoId)) continue;
-						if (temTerra) {
+						if (temTerra && planejadosTerra < limiteTerra) {
 							enviosIlha.push({ origem: cidadeOrigem.id, destino: cidadeAlvoId, tipo: 'terra' });
 							destinosAtendidos[cidadeAlvoId] = true;
-						} else if (temNaval) {
+							planejadosTerra++;
+						} else if (temNaval && planejadosNaval < limiteNaval) {
 							enviosIlha.push({ origem: cidadeOrigem.id, destino: cidadeAlvoId, tipo: 'naval' });
 							destinosAtendidos[cidadeAlvoId] = true;
+							planejadosNaval++;
 						}
 					}
 				}
@@ -1955,7 +1998,7 @@
 	// ========================
 
 	function aguardarJogo(callback) {
-		if (typeof uw.ITowns !== 'undefined' && typeof uw.gpAjax !== 'undefined' && typeof uw.MM !== 'undefined' && typeof uw.GameEvents !== 'undefined') {
+		if (typeof uw.ITowns !== 'undefined' && typeof uw.gpAjax !== 'undefined' && typeof uw.MM !== 'undefined' && typeof uw.GameEvents !== 'undefined' && typeof uw.$ !== 'undefined') {
 			callback();
 		} else {
 			setTimeout(function () { aguardarJogo(callback); }, 500);
@@ -1964,6 +2007,12 @@
 
 	function initSentinela() {
 		aguardarJogo(function () {
+			carregarDadosServidor();
+			inicializarCacheMovimentos();
+			inicializarAssinaturaClique();
+			inicializarAjaxComplete();
+			inicializarObserverIlhas();
+			inicializarInterceptadorEnvio();
 			configurarIndicador();
 			setTimeout(atualizarMapa, 1500);
 		});
